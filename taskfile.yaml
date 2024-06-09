@@ -3,45 +3,56 @@
 version: '3'
 
 vars:
-  GREETING: Hello, World!
-  ILOC: d:/a/local
+  ILOC_BASE: '{{ joinPath .TASKFILE_DIR ".local" }}'
+  ILOC: '{{ fromSlash .ILOC_BASE }}'
+  VERSION:
+    sh: git describe --tags HEAD
+
 
 tasks:
   default:
     cmds:
       - task: build
 
+  test:
+    cmds:
+      - cmd: 'echo "{{.ILOC}}"'
+      - cmd: 'echo "{{.VERSION}}"'
+
   build:
     name: cmake-win64
     runs-on: windows-latest
     cmds:
       - cmd: scoop install nasm
+      - task: task-checkout
+      - task: uninstall-perl
+      - task: build-and-install-zlib-ng
+      - task: build-and-install-libpng
+      - task: build-and-install-libjpeg
+      - task: build-and-install-jbigkit
+      - task: build-and-install-libtiff
+      - task: build-and-install-leptonica
+      - task: remove-not-needed-tools-before-building-tesseract
+      - task: build-and-install-tesseract
+      - task: display-tesseract-version-and-test-command-line-usage
 
   task-checkout:
     cmds:
-      - cmd:
-          submodules: recursive
-          cmd: git fetch --prune --unshallow --tags
-
-  get-the-version:
-    cmds:
-      - cmd: |
-          $git_info=$(git describe --tags HEAD)
-          echo "version=${git_info}" >> $env:GITHUB_OUTPUT
+      - cmd: git submodule update --recursive --checkout --init
+      - cmd: git fetch --prune --unshallow --tags
+        ignore_error: true
 
   uninstall-perl:
-    name: "uninstall-perl"
     cmds:
       - cmd: choco uninstall strawberryperl
         ignore_error: true
 
   build-and-install-zlib-ng:
-    name: "build-and-install-zlib-ng"
     cmds:
       - cmd: |
           git clone --depth 1 https://github.com/zlib-ng/zlib-ng.git
           cd zlib-ng
-          cmake -Bbuild -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DBUILD_SHARED_LIBS=OFF -DZLIB_COMPAT=ON -DZLIB_ENABLE_TESTS=OFF -DINSTALL_UTILS=OFF
+          cmake -Bbuild -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -DBUILD_SHARED_LIBS=OFF -DZLIB_COMPAT=ON -DZLIB_ENABLE_TESTS=OFF -DINSTALL_UTILS=OFF
           cmake --build build --config Release --target install
           cd ..
 
@@ -51,7 +62,7 @@ tasks:
           curl -sSL -o lpng1643.zip https://download.sourceforge.net/libpng/lpng1643.zip
           unzip.exe  -qq lpng1643.zip
           cd lpng1643
-          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DPNG_TESTS=OFF -DPNG_SHARED=OFF
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -DPNG_TESTS=OFF -DPNG_SHARED=OFF
           cmake --build build --config Release --target install
           cd ..
 
@@ -60,7 +71,7 @@ tasks:
       - cmd: |
           git clone --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git
           cd libjpeg-turbo
-          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DWITH_TURBOJPEG=OFF -DENABLE_SHARED=OFF
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -DWITH_TURBOJPEG=OFF -DENABLE_SHARED=OFF
           cmake --build build --config Release --target install
           cd ..
 
@@ -69,7 +80,7 @@ tasks:
       - cmd: |
           git clone --depth 1 https://github.com/zdenop/jbigkit.git
           cd jbigkit
-          cmake -Bbuild -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DBUILD_PROGRAMS=OFF -DBUILD_TOOLS=OFF -DCMAKE_WARN_DEPRECATED=OFF
+          cmake -Bbuild -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -DBUILD_PROGRAMS=OFF -DBUILD_TOOLS=OFF -DCMAKE_WARN_DEPRECATED=OFF
           cmake --build build --config Release --target install
           cd ..
 
@@ -78,7 +89,7 @@ tasks:
       - cmd: |
           git clone -c advice.detachedHead=false -b "v4.6.0" --depth 1 https://gitlab.com/libtiff/libtiff.git
           cd libtiff
-          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF
           cmake --build build --config Release --target install
           cd ..
 
@@ -88,35 +99,28 @@ tasks:
           echo "Building leptonica..."
           git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
           cd leptonica
-          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DSW_BUILD=OFF -DBUILD_PROG=OFF -DBUILD_SHARED_LIBS=ON
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -DSW_BUILD=OFF -DBUILD_PROG=OFF -DBUILD_SHARED_LIBS=ON
           cmake --build build --config Release --target install
 
   remove-not-needed-tools-before-building-tesseract:
     cmds:
-      - cmd: >
-          rm -Rf ${{env.ILOC}}/bin/*.exe
+      - cmd: rm -Rf {{ .ILOC }}/bin/*.exe
 
-  build-and-install-tesseract"
+  build-and-install-tesseract:
     cmds:
       - cmd: |
-          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DSW_BUILD=OFF -DBUILD_SHARED_LIBS=ON -DENABLE_LTO=ON -DBUILD_TRAINING_TOOLS=OFF -DFAST_FLOAT=ON -DGRAPHICS_DISABLED=ON -DOPENMP_BUILD=OFF
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -DSW_BUILD=OFF -DBUILD_SHARED_LIBS=ON -DENABLE_LTO=ON -DBUILD_TRAINING_TOOLS=OFF -DFAST_FLOAT=ON -DGRAPHICS_DISABLED=ON -DOPENMP_BUILD=OFF
           cmake --build build --config Release --target install
 
-  upload-build-results:
-    cmds:
-      - cmd:
-          name: tesseract-${{ steps.get_version.outputs.version }}-VS2019_win64
-          path: ${{env.ILOC}}
-
-  display-tesseract-version-and-test-command-line-usage":
+  display-tesseract-version-and-test-command-line-usage:
     cmds:
       - cmd: |
-          curl -L https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata --output ${{env.ILOC}}/share/tessdata/eng.traineddata
-          curl -L https://github.com/tesseract-ocr/tessdata/raw/main/osd.traineddata --output ${{env.ILOC}}/share/tessdata/osd.traineddata
+          curl -L https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata --output {{ .ILOC }}/share/tessdata/eng.traineddata
+          curl -L https://github.com/tesseract-ocr/tessdata/raw/main/osd.traineddata --output {{ .ILOC }}/share/tessdata/osd.traineddata
           echo "Setting TESSDATA_PREFIX..."
-          set TESSDATA_PREFIX=${{env.ILOC}}/share/tessdata
+          set TESSDATA_PREFIX={{ .ILOC }}/share/tessdata
           echo "Setting PATH..."
-          set PATH=${{env.ILOC}}/bin;%PATH%
+          set PATH={{ .ILOC }}/bin;%PATH%
           echo "Checking installed tesseract version..."
           tesseract -v
           echo "Checking installed langs"
