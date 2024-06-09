@@ -4,3 +4,7 @@
 [submodule "test"]
 	path = test
 	url = https://github.com/tesseract-ocr/test.git
+[submodule "external/vcpkg"]
+	path = external/vcpkg
+	url = https://github.com/microsoft/vcpkg.git
+	branch = master
