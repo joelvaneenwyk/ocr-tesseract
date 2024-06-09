@@ -41,6 +41,8 @@ tasks:
       - cmd: git submodule update --recursive --checkout --init
       - cmd: git fetch --prune --unshallow --tags
         ignore_error: true
+      - cmd: mkdir "{{ .ILOC }}"
+        ignore_error: true
 
   uninstall-perl:
     cmds:
