@@ -1,13 +1,12 @@
 # https://taskfile.dev
 
-version: '3'
+version: "3"
 
 vars:
   ILOC_BASE: '{{ joinPath .TASKFILE_DIR ".local" }}'
-  ILOC: '{{ fromSlash .ILOC_BASE }}'
+  ILOC: "{{ fromSlash .ILOC_BASE }}"
   VERSION:
     sh: git describe --tags HEAD
-
 
 tasks:
   default:
@@ -51,12 +50,14 @@ tasks:
 
   build-and-install-zlib-ng:
     cmds:
+      - cmd: git clone --depth 1 https://github.com/zlib-ng/zlib-ng.git
+        ignore_error: true
+      - cmd: git -C zlib-ng pull
+        ignore_error: true
       - cmd: |
-          git clone --depth 1 https://github.com/zlib-ng/zlib-ng.git
           cd zlib-ng
           cmake -Bbuild -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -DBUILD_SHARED_LIBS=OFF -DZLIB_COMPAT=ON -DZLIB_ENABLE_TESTS=OFF -DINSTALL_UTILS=OFF
           cmake --build build --config Release --target install
-          cd ..
 
   build-and-install-libpng:
     cmds:

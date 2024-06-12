@@ -115,3 +115,5 @@ times.txt
 
 /*.snap
 /*_source.tar.bz2
+
+/.local/
