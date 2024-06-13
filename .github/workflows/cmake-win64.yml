@@ -26,8 +26,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - run: git fetch --prune --tags
-
       - name: Get the version
         id: get_version
         run: |
