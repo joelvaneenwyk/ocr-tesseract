@@ -20,15 +20,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
+
       - run: git fetch --prune --unshallow --tags
       - name: Get the version
         id: get_version
         run: |
-             $git_info=$(git describe --tags HEAD)
-             echo "version=${git_info}" >> $env:GITHUB_OUTPUT
+          $git_info=$(git describe --tags --dirty --abbrev=7)
+          echo "version=${git_info}" >> $env:GITHUB_OUTPUT
       - name: Setup Installation Location
         run: |
-             mkdir ${{env.ILOC}}
+          mkdir ${{env.ILOC}}
       - name: Uninstall Perl
         run: |
           choco uninstall strawberryperl
@@ -36,68 +38,68 @@ jobs:
       - name: Build and Install zlib-ng
         shell: cmd
         run: |
-             git clone --depth 1 https://github.com/zlib-ng/zlib-ng.git
-             cd zlib-ng
-             cmake -Bbuild -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DBUILD_SHARED_LIBS=OFF -DZLIB_COMPAT=ON -DZLIB_ENABLE_TESTS=OFF -DINSTALL_UTILS=OFF
-             cmake --build build --config Release --target install
-             cd ..
+          git clone --depth 1 https://github.com/zlib-ng/zlib-ng.git
+          cd zlib-ng
+          cmake -Bbuild -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DBUILD_SHARED_LIBS=OFF -DZLIB_COMPAT=ON -DZLIB_ENABLE_TESTS=OFF -DINSTALL_UTILS=OFF
+          cmake --build build --config Release --target install
+          cd ..
 
       - name: Build and Install libpng
         shell: cmd
         run: |
-             curl -sSL -o lpng1643.zip https://download.sourceforge.net/libpng/lpng1643.zip
-             unzip.exe  -qq lpng1643.zip
-             cd lpng1643
-             cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DPNG_TESTS=OFF -DPNG_SHARED=OFF
-             cmake --build build --config Release --target install
-             cd ..
+          curl -sSL -o lpng1643.zip https://download.sourceforge.net/libpng/lpng1643.zip
+          unzip.exe  -qq lpng1643.zip
+          cd lpng1643
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DPNG_TESTS=OFF -DPNG_SHARED=OFF
+          cmake --build build --config Release --target install
+          cd ..
 
       - name: Build and Install libjpeg
         shell: cmd
         run: |
-             git clone --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git
-             cd libjpeg-turbo
-             cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DWITH_TURBOJPEG=OFF -DENABLE_SHARED=OFF
-             cmake --build build --config Release --target install
-             cd ..
+          git clone --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git
+          cd libjpeg-turbo
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DWITH_TURBOJPEG=OFF -DENABLE_SHARED=OFF
+          cmake --build build --config Release --target install
+          cd ..
 
       - name: Build and Install jbigkit
         shell: cmd
         run: |
-             git clone --depth 1 https://github.com/zdenop/jbigkit.git
-             cd jbigkit
-             cmake -Bbuild -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DBUILD_PROGRAMS=OFF -DBUILD_TOOLS=OFF -DCMAKE_WARN_DEPRECATED=OFF
-             cmake --build build --config Release --target install
-             cd ..
+          git clone --depth 1 https://github.com/zdenop/jbigkit.git
+          cd jbigkit
+          cmake -Bbuild -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DBUILD_PROGRAMS=OFF -DBUILD_TOOLS=OFF -DCMAKE_WARN_DEPRECATED=OFF
+          cmake --build build --config Release --target install
+          cd ..
 
       - name: Build and Install libtiff
         shell: cmd
         run: |
-             git clone -c advice.detachedHead=false -b "v4.6.0" --depth 1 https://gitlab.com/libtiff/libtiff.git
-             cd libtiff
-             cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF
-             cmake --build build --config Release --target install
-             cd ..
+          git clone -c advice.detachedHead=false -b "v4.6.0" --depth 1 https://gitlab.com/libtiff/libtiff.git
+          cd libtiff
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF
+          cmake --build build --config Release --target install
+          cd ..
 
       - name: Build and Install leptonica
         shell: cmd
         run: |
-             echo "Building leptonica..."
-             git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
-             cd leptonica
-             cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DSW_BUILD=OFF -DBUILD_PROG=OFF -DBUILD_SHARED_LIBS=ON
-             cmake --build build --config Release --target install
+          echo "Building leptonica..."
+          git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
+          cd leptonica
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DSW_BUILD=OFF -DBUILD_PROG=OFF -DBUILD_SHARED_LIBS=ON
+          cmake --build build --config Release --target install
 
       - name: Remove not needed tools Before building tesseract
         shell: cmd
         run: >
-             rm -Rf ${{env.ILOC}}/bin/*.exe
+          rm -Rf ${{env.ILOC}}/bin/*.exe
 
       - name: Build and Install tesseract
         shell: cmd
         run: |
-             cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DSW_BUILD=OFF -DBUILD_SHARED_LIBS=ON -DENABLE_LTO=ON -DBUILD_TRAINING_TOOLS=OFF -DFAST_FLOAT=ON -DGRAPHICS_DISABLED=ON -DOPENMP_BUILD=OFF
-             cmake --build build --config Release --target install
+          cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{env.ILOC}} -DCMAKE_INSTALL_PREFIX=${{env.ILOC}} -DSW_BUILD=OFF -DBUILD_SHARED_LIBS=ON -DENABLE_LTO=ON -DBUILD_TRAINING_TOOLS=OFF -DFAST_FLOAT=ON -DGRAPHICS_DISABLED=ON -DOPENMP_BUILD=OFF
+          cmake --build build --config Release --target install
 
       - name: Upload Build Results
         uses: actions/upload-artifact@v4
