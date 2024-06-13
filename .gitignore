@@ -117,3 +117,5 @@ times.txt
 /*_source.tar.bz2
 
 /.local/
+/
+/zlib-ng/
