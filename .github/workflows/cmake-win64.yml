@@ -2,7 +2,10 @@
 # Build Tesseract on Windows using cmake. No Training Tools.
 name: cmake-win64
 on:
-  #push:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
   schedule:
     - cron: 0 23 * * *
   workflow_dispatch:
