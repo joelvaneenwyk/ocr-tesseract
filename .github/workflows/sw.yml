@@ -2,6 +2,7 @@ name: sw
 
 on:
   push:
+    branches: [main, develop]
     paths:
       - '**.cpp'
       - '**.h'
@@ -9,6 +10,7 @@ on:
       - 'unittest/**.c'
       - 'unittest/**.cc'
   pull_request:
+    branches: [main, develop]
     paths:
       - '**.cpp'
       - '**.h'
@@ -21,15 +23,19 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2022, macos-latest]
         include:
-          - os: ubuntu-22.04
-            container: fedora:latest
+          - os: windows-2022
+            container:
+          # - os: macos-latest
+          #   container:
+          # - os: ubuntu-22.04
+          #   container: fedora:latest
+
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
 
     steps:
     - name: packages
