@@ -1,0 +1,5 @@
+{
+    "github-actions.workflows.pinned.workflows": [
+        ".github/workflows/cmake-win64.yml"
+    ]
+}
