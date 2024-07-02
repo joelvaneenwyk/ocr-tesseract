@@ -13,6 +13,7 @@ vars:
   DEP_SOURCE_DIR: '{{ joinPath .BUILD_DIR "source" }}'
   DEP_BUILD_DIR: '{{ joinPath .BUILD_DIR "out" }}'
   DEP_ARCHIVE_DIR: '{{ joinPath .BUILD_DIR "archives" }}'
+  DEP_TEMP_DIR: '{{ joinPath .BUILD_DIR "tmp" }}'
 
   ILOC: '{{ joinPath .BUILD_DIR "install" }}'
 
@@ -193,10 +194,14 @@ tasks:
       TARGET_PREFIX_PATH: '{{ .PREFIX_PATH }};{{ .TARGET_SOURCE_DIR }};{{ .TARGET_BUILD_DIR }}'
 
       INSTALL_PREFIX: '{{ joinPath .ILOC .TARGET_NAME }}'
+
+      TARGET_OUTPUT_TEST_FILE: 'lib/{{ .TARGET_NAME }}.a'
+      TARGET_OUTPUT_TEST_PATH: '{{ joinPath .INSTALL_PREFIX .TARGET_OUTPUT_TEST_FILE }}'
     status:
       - test -d "{{ .TARGET_BUILD_DIR }}"
       - test -d "{{ .TARGET_SOURCE_DIR }}"
       - test -d "{{ .INSTALL_PREFIX }}"
+      - test -f "{{ .TARGET_OUTPUT_TEST_PATH }}"
     dir: '{{ .TARGET_SOURCE_DIR }}'
     cmds:
       - task: git-clone
@@ -245,29 +250,32 @@ tasks:
       TARGET_SUB_DIRECTORY: '{{ .FILENAME | splitList "." | first }}'  # lpng1643
       TARGET_EXTENSION: '{{ .FILENAME | splitList "." | last }}'  # lpng1643
       OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .FILENAME }}'
-      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_SOURCE_DIR "tmp" .TARGET_NAME }}'
+      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .TARGET_NAME }}'
       TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
     env:
       OUTPUT_UNZIP_DIR: '{{ fromSlash .OUTPUT_UNZIP_DIR }}'
+      TARGET_EXTENSION: '{{ .TARGET_EXTENSION }}'
+      TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR }}'
+      OUTPUT_ARCHIVE_FILE_PATH: '{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}'
+      OUTPUT_ARCHIVE_DIR: '{{ .OUTPUT_ARCHIVE_FILE_PATH | dir | fromSlash }}'
+      URI: '{{ .URI }}'
+    silent: true
     cmds:
       - cmd: |
-          mkdir -p \
-            "{{ .OUTPUT_ARCHIVE_FILE_PATH | dir | fromSlash }}" \
-            "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
-      - cmd: |
-          if [ ! -e "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" ]; then
-            echo "Downloading archive: '{{ .URI }}'"
-            curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" "{{ .URI }}"
+          if [ ! -e "$OUTPUT_ARCHIVE_FILE_PATH" ]; then
+            echo "Downloading archive: '$URI'"
+            mkdir -p "${OUTPUT_ARCHIVE_DIR}"
+            curl -sSL -o "${OUTPUT_ARCHIVE_FILE_PATH}" "${URI}"
           fi
       - cmd: |
-          set -eax
-          if [[ "${TARGET_EXTENSION}" == "zip" ]]; then
-            unzip -o -qq -d "{{ fromSlash .OUTPUT_UNZIP_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
+          mkdir -p "$TARGET_SOURCE_DIR" "$OUTPUT_UNZIP_DIR"
+          if [ "$TARGET_EXTENSION" == "zip" ]; then
+            unzip -o -qq -d "$OUTPUT_UNZIP_DIR" "$OUTPUT_ARCHIVE_FILE_PATH"
           else
-            tar -xf "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
+            tar -xf "$OUTPUT_ARCHIVE_FILE_PATH" -C "$OUTPUT_UNZIP_DIR"
           fi
-          subfolder="$(ls "${OUTPUT_UNZIP_DIR:-./}" | head -1)"
-          mv -f "${OUTPUT_UNZIP_DIR:-./}/${subfolder}"/* "{{ fromSlash .TARGET_SOURCE_DIR }}"
+          extracted_folder_name="$(ls "$OUTPUT_UNZIP_DIR" | head -1)"
+          cp -Rf "$OUTPUT_UNZIP_DIR/$extracted_folder_name"/* "$TARGET_SOURCE_DIR"
       - task: cmake-build
         vars:
           TARGET_NAME: '{{ .TARGET_NAME }}'
