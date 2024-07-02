@@ -129,3 +129,19 @@ jobs:
           tesseract --list-langs
           echo "Checking OCR process"
           tesseract test/testing/phototest.tif -
+
+  taskfile:
+    needs: build
+    name: taskfile-validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+
+      - run: task
