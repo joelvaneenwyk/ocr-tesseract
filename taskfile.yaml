@@ -237,14 +237,18 @@ tasks:
 
   dependency-libpng:
     vars:
-      URI: 'https://download.sourceforge.net/libpng/lpng1643.zip'
+      URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
+      URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
+      URI: '{{ if eq .BUILD_OS "windows" }}{{ .URI_ZIP }}{{ else }}{{ .URI_TAR_XZ }}{{ end }}'
       TARGET_NAME: '{{ .URI | splitList "/" | reverse | rest | first }}'  # libpng
       FILENAME: '{{ .URI | splitList "/" | last }}'  # lpng1643.zip
       TARGET_SUB_DIRECTORY: '{{ .FILENAME | splitList "." | first }}'  # lpng1643
+      TARGET_EXTENSION: '{{ .FILENAME | splitList "." | last }}'  # lpng1643
       OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .FILENAME }}'
-      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_SUB_DIRECTORY }}'
-      TARGET_SOURCE_DIR: '{{ joinPath .OUTPUT_UNZIP_DIR .TARGET_SUB_DIRECTORY }}'
-    silent: true
+      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_SOURCE_DIR "tmp" .TARGET_NAME }}'
+      TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
+    env:
+      OUTPUT_UNZIP_DIR: '{{ fromSlash .OUTPUT_UNZIP_DIR }}'
     cmds:
       - cmd: |
           mkdir -p \
@@ -252,12 +256,18 @@ tasks:
             "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
       - cmd: |
           if [ ! -e "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" ]; then
+            echo "Downloading archive: '{{ .URI }}'"
             curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" "{{ .URI }}"
           fi
       - cmd: |
-          unzip -o -qq -d "{{ fromSlash .OUTPUT_UNZIP_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
-      - task: normalize-file-ending
-        vars: { TARGET_FILE_PATH: '{{ joinPath .TARGET_SOURCE_DIR "scripts/pnglibconf.dfa" }}' }
+          set -eax
+          if [[ "${TARGET_EXTENSION}" == "zip" ]]; then
+            unzip -o -qq -d "{{ fromSlash .OUTPUT_UNZIP_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
+          else
+            tar -xf "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
+          fi
+          subfolder="$(ls "${OUTPUT_UNZIP_DIR:-./}" | head -1)"
+          mv -f "${OUTPUT_UNZIP_DIR:-./}/${subfolder}"/* "{{ fromSlash .TARGET_SOURCE_DIR }}"
       - task: cmake-build
         vars:
           TARGET_NAME: '{{ .TARGET_NAME }}'
