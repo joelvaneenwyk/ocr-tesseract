@@ -150,4 +150,4 @@ jobs:
       - run: task dependency-jbigkit
       - run: task dependency-libtiff
       - run: task dependency-leptonica
-      - run: task build-tesseract
+      - run: task tesseract
