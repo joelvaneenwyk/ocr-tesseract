@@ -24,12 +24,11 @@ vars:
   PREFIX_PATH: '{{ .ILOC }};{{ .TASKFILE_DIR }}/external/vcpkg;{{ .TASKFILE_DIR }}'
 
   TESSDATA_PREFIX: '{{ .ILOC }}/share/tessdata'
-  TESSERACT_BIN_DIR: '{{ .ILOC }}/tesseract/bin'
 
 tasks:
   default:
     cmds:
-      - task: build
+      - task: tesseract
 
   init:
     internal: true
@@ -53,9 +52,9 @@ tasks:
     deps: [init]
     cmds:
       - task: remove-unused-tool-binaries
-      - task: build-tesseract
+      - task: tesseract-build
 
-  build-tesseract:
+  tesseract-build:
     cmds:
       - task: cmake-build
         vars:
@@ -69,40 +68,46 @@ tasks:
             -DGRAPHICS_DISABLED=ON
             -DOPENMP_BUILD=OFF
             -DSW_BUILD=OFF
-      - task: get-tesseract-data
 
-  get-tesseract-info:
+  tesseract:
+    deps: [tesseract-build, tesseract-data]
     vars:
-      URI: '{{ default "" .URI }}'
-      TARGET_DIR: '{{ default .TASKFILE_DIR .TARGET_DIR }}'
-      TARGET_NAME: '{{ .URI | splitList "/" | last }}'
-      TARGET: '{{ joinPath .TARGET_DIR .TARGET_NAME }}'
-    desc: "Download training data. {{ .TARGET_NAME }}"
-    status:
-      - test -f "{{ .TARGET }}"
-    cmds:
-      - cmd: |
-          mkdir -p "{{ .TARGET | dir | fromSlash }}"
-      - cmd: |
-          curl -L "{{ .URI }}" --output "{{ .TARGET | fromSlash }}"
+      CLI_ARGS: '{{ default "--version" .CLI_ARGS }}'
+      TESSERACT_BIN_DIR: '{{ joinPath .ILOC "tesseract" "bin" }}'
+      TESSERACT_LIB_DIR: '{{ joinPath .ILOC "tesseract" "lib" }}'
+      TESSERACT_RAW_PATHS: |
+        {{ .TESSERACT_BIN_DIR }}
+        {{ .TESSERACT_LIB_DIR }}
+        {{ joinPath .ILOC "leptonica" "lib" }}
+        {{ joinPath .ILOC "libtiff" "lib" }}
+      TESSERACT_PATHS: '{{ splitLines .TESSERACT_RAW_PATHS | uniq | compact | sortAlpha | join ":" }}'
+    env:
+      CLI_ARGS: '{{ .CLI_ARGS }}'
+      TESSERACT_BIN_DIR: '{{ fromSlash .TESSERACT_BIN_DIR }}'
+      TESSERACT_LIB_DIR: '{{ fromSlash .TESSERACT_LIB_DIR }}'
+      TESSERACT_PATHS: '{{ .TESSERACT_PATHS }}'
+    silent: true
+    cmd: |
+      export PATH="$TESSERACT_PATHS:$PATH"
+      export LD_LIBRARY_PATH="$TESSERACT_PATHS:$LD_LIBRARY_PATH"
+      tesseract $CLI_ARGS
 
-  get-tesseract-data:
+  tesseract-data:
     cmds:
       - for: ['eng.traineddata', 'osd.traineddata']
-        task: get-tesseract-info
+        task: get-trained-data
         vars:
           TARGET_DIR: '{{ .TESSDATA_PREFIX }}'
           URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}'
 
   test:
-    deps: [get-tesseract-data, build-tesseract]
-    env:
-      TESSDATA_PREFIX: '{{ .TESSDATA_PREFIX }}'
-      PATH: '{{ .TESSERACT_BIN_DIR }}:{{ .PATH1 }}'
     cmds:
-      - cmd: tesseract -v
-      - cmd: tesseract --list-langs
-      - cmd: tesseract test/testing/phototest.tif -
+      - task: tesseract
+        vars: { CLI_ARGS: -v }
+      - task: tesseract
+        vars: { CLI_ARGS: --list-langs }
+      - task: tesseract
+        vars: { CLI_ARGS: test/testing/phototest.tif - }
 
   dependency-nasm:
     platforms: [windows]
@@ -111,6 +116,21 @@ tasks:
     cmds:
       - cmd: scoop install nasm
         platforms: [windows]
+
+  get-trained-data:
+    vars:
+      URI: '{{ default "" .URI }}'
+      TARGET_DIR: '{{ default .TASKFILE_DIR .TARGET_DIR }}'
+      TARGET_NAME: '{{ .URI | splitList "/" | last }}'
+      TARGET: '{{ joinPath .TARGET_DIR .TARGET_NAME }}'
+    desc: "Download trained data. {{ .TARGET_NAME }}"
+    status:
+      - test -f "{{ .TARGET }}"
+    cmds:
+      - cmd: |
+          mkdir -p "{{ .TARGET | dir | fromSlash }}"
+      - cmd: |
+          curl -L "{{ .URI }}" --output "{{ .TARGET | fromSlash }}"
 
   git-init:
     internal: true
@@ -135,13 +155,12 @@ tasks:
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
     preconditions:
       - git --version
-    silent: true
+    status:
+      - test -z "{{ .TARGET_DIR }}"
     cmds:
       - cmd: |
-          if [ -z "$(ls -A "{{ fromSlash .TARGET_DIR }}")" ]; then
-            rm -rf "{{ fromSlash .TARGET_DIR }}"
-          else
-            echo "Target directory is ready: '{{ fromSlash .TARGET_DIR }}'"
+          if rmdir "{{ fromSlash .TARGET_DIR }}" 2> /dev/null; then
+            echo "Removed empty target directory: '{{ fromSlash .TARGET_DIR }}'"
           fi
       - cmd: |
           if [ -n "{{ .URI }}" ] && [ ! -d "{{ fromSlash .TARGET_DIR }}" ]; then
@@ -157,7 +176,8 @@ tasks:
       TARGET_DIR: '{{ default "" .TARGET_DIR }}'
     preconditions:
       - git --version
-      - test -d "{{ .TARGET_DIR }}"
+    status:
+      - test ! -d "{{ .TARGET_DIR }}"
     dir: '{{ .TARGET_DIR }}'
     cmd: git pull --rebase --autostash || true
 
@@ -220,6 +240,7 @@ tasks:
           --config "{{ .CONFIG }}"
           --target install
           --verbose
+          -j {{ if eq .OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
 
   dependency-zlib-ng:
     cmds:
@@ -246,18 +267,14 @@ tasks:
       URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
       URI: '{{ if eq .BUILD_OS "windows" }}{{ .URI_ZIP }}{{ else }}{{ .URI_TAR_XZ }}{{ end }}'
       TARGET_NAME: '{{ .URI | splitList "/" | reverse | rest | first }}'  # libpng
-      FILENAME: '{{ .URI | splitList "/" | last }}'  # lpng1643.zip
-      TARGET_SUB_DIRECTORY: '{{ .FILENAME | splitList "." | first }}'  # lpng1643
-      TARGET_EXTENSION: '{{ .FILENAME | splitList "." | last }}'  # lpng1643
-      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .FILENAME }}'
-      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .TARGET_NAME }}'
+      TMP_FILENAME: '{{ .URI | splitList "/" | last }}'  # lpng1643.zip
       TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
     env:
-      OUTPUT_UNZIP_DIR: '{{ fromSlash .OUTPUT_UNZIP_DIR }}'
-      TARGET_EXTENSION: '{{ .TARGET_EXTENSION }}'
-      TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR }}'
-      OUTPUT_ARCHIVE_FILE_PATH: '{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}'
-      OUTPUT_ARCHIVE_DIR: '{{ .OUTPUT_ARCHIVE_FILE_PATH | dir | fromSlash }}'
+      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .TARGET_NAME | fromSlash }}'
+      TARGET_EXTENSION: '{{ .TMP_FILENAME | splitList "." | last }}'
+      TARGET_SOURCE_DIR: '{{ fromSlash .TARGET_SOURCE_DIR }}'
+      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .TMP_FILENAME }}'
+      OUTPUT_ARCHIVE_DIR: '{{ joinPath .DEP_ARCHIVE_DIR .TMP_FILENAME | dir | fromSlash }}'
       URI: '{{ .URI }}'
     silent: true
     cmds:
@@ -274,8 +291,11 @@ tasks:
           else
             tar -xf "$OUTPUT_ARCHIVE_FILE_PATH" -C "$OUTPUT_UNZIP_DIR"
           fi
+      - cmd: |
+          mkdir -p "$TARGET_SOURCE_DIR"
           extracted_folder_name="$(ls "$OUTPUT_UNZIP_DIR" | head -1)"
-          cp -Rf "$OUTPUT_UNZIP_DIR/$extracted_folder_name"/* "$TARGET_SOURCE_DIR"
+          cp -Ru "$OUTPUT_UNZIP_DIR/$extracted_folder_name"/* "$TARGET_SOURCE_DIR"
+          echo "Copied updated source files from archive to target: '$TARGET_SOURCE_DIR'"
       - task: cmake-build
         vars:
           TARGET_NAME: '{{ .TARGET_NAME }}'
@@ -288,7 +308,6 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          TARGET_NAME: libjpeg-turbo
           URI: https://github.com/libjpeg-turbo/libjpeg-turbo.git
           CONFIGURE_ARGS: >-
             -DWITH_TURBOJPEG=OFF
@@ -298,7 +317,6 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          TARGET_NAME: jbigkit
           URI: https://github.com/zdenop/jbigkit.git
           CONFIGURE_ARGS: >-
             -DBUILD_PROGRAMS=OFF
@@ -309,7 +327,6 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          TARGET_NAME: libtiff
           URI: https://gitlab.com/libtiff/libtiff.git
           GIT_ARGS: -c advice.detachedHead=false -b "v4.6.0"
           CONFIGURE_ARGS: >-
@@ -322,7 +339,6 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          TARGET_NAME: leptonica
           URI: https://github.com/DanBloomberg/leptonica.git
           CONFIGURE_ARGS: >-
             -DSW_BUILD=OFF
