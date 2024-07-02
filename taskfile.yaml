@@ -7,7 +7,9 @@ vars:
   BUILD_OS: '{{if eq .OS "windows"}}windows{{else}}{{if eq .OS "darwin"}}darwin{{else}}linux{{end}}{{end}}'
   BUILD_DIR: '{{ joinPath .BUILD_DIR_BASE .BUILD_OS }}'
   DEP_SOURCE_DIR: '{{ joinPath .BUILD_DIR "source" }}'
-  ILOC: '{{ joinPath .BUILD_DIR "local" }}'
+  DEP_BUILD_DIR: '{{ joinPath .BUILD_DIR "out" }}'
+  ILOC: '{{ joinPath .BUILD_DIR "install" }}'
+  PREFIX_PATH: '{{ .ILOC }}'
   VERSION:
     sh: git describe --tags HEAD
 
@@ -16,10 +18,21 @@ tasks:
     cmds:
       - task: build
 
+  uri:
+    vars:
+      URI: '{{ default "https://github.com/zdenop/jbigkit.git" .URI }}'
+      GIT_REPO: '{{ .URI | splitList "/" | last }}'
+      USERNAME: '{{ .URI | dir | splitList "/" | last }}'
+      REPO: '{{ .GIT_REPO | splitList "." | first }}'
+    cmds:
+      - cmd: 'echo "{{ .GIT_REPO }}"'
+      - cmd: 'echo "{{ .USERNAME }}"'
+      - cmd: 'echo "{{ .REPO }}"'
+
   test:
     cmds:
-      - cmd: 'echo "{{.ILOC}}"'
-      - cmd: 'echo "{{.VERSION}}"'
+      - cmd: 'echo "{{ .ILOC }}"'
+      - cmd: 'echo "{{ .VERSION }}"'
 
   build:
     name: cmake-win64
@@ -28,14 +41,14 @@ tasks:
       - cmd: scoop install nasm
       - task: task-checkout
       - task: uninstall-perl
-      - task: build-and-install-zlib-ng
-      - task: build-and-install-libpng
-      - task: build-and-install-libjpeg
-      - task: build-and-install-jbigkit
-      - task: build-and-install-libtiff
-      - task: build-and-install-leptonica
+      - task: cmake-build-zlib-ng
+      - task: cmake-build-libpng
+      - task: cmake-build-libjpeg
+      - task: cmake-build-jbigkit
+      - task: cmake-build-libtiff
+      - task: cmake-build-leptonica
       - task: remove-not-needed-tools-before-building-tesseract
-      - task: build-and-install-tesseract
+      - task: cmake-build-tesseract
       - task: display-tesseract-version-and-test-command-line-usage
 
   task-checkout:
@@ -51,47 +64,57 @@ tasks:
       - cmd: choco uninstall strawberryperl
         ignore_error: true
 
-  build-and-install-clone:
+  git-clone:
+    required: [URI, TARGET_DIR]
     vars:
-      URI: '{{ default "" .URI }}'
-      TARGET_DIR: '{{ default "" .TARGET_DIR }}'
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
     preconditions:
       - git --version
     status:
       - test -d "{{ .TARGET_DIR }}"
     cmds:
-      - cmd: 'git clone {{ .GIT_ARGS }} --depth 1 "{{ .URI }}" "{{ fromSlash .TARGET_DIR }}"'
-        if: '{{ .URI }} != "" && .TARGET_DIR != ""'
+      - cmd: |
+          git clone {{ .GIT_ARGS }} --depth 1 "{{ .URI }}" "{{ fromSlash .TARGET_DIR }}"
+        if:
+          - 'empty .URI | not'
+          - 'empty .TARGET_DIR | not'
+          - 'test ! -d "{{ .TARGET_DIR }}"'
+      - cmd: >-
+          git -C "{{ fromSlash .TARGET_DIR }}" pull --rebase --recurse-submodules --autostash
+        if:
+          - 'test -d "{{ .TARGET_DIR }}"'
+        ignore_error: true
 
-  build-and-install:
+  cmake-build:
     vars:
-      NAME: '{{ default "" .NAME }}'
       URI: '{{ default "" .URI }}'
+      GIT_REPO: '{{ .URI | splitList "/" | last }}'
+      USERNAME: '{{ .URI | dir | splitList "/" | last }}'
+      REPO: '{{ .GIT_REPO | splitList "." | first }}'
+      TARGET_NAME: '{{ default .REPO .TARGET_NAME }}'
       CONFIG: '{{ default "Release" .CONFIG }}'
-      TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .NAME }}'
-      TARGET_BUILD_DIR: '{{ joinPath .BUILD_DIR .NAME }}'
+      TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
+      TARGET_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
       CONFIGURE_ARGS: '{{ default "" .CONFIGURE_ARGS }}'
-      PREFIX_PATH: '{{ .ILOC }}'
-      INSTALL_PREFIX: '{{ joinPath .ILOC .NAME }}'
+      INSTALL_PREFIX: '{{ joinPath .ILOC .TARGET_NAME }}'
     cmds:
-      - task: build-and-install-clone
-        vars:
-          TARGET_DIR: "{{ .TARGET_SOURCE_DIR }}"
-          URI: "{{ .URI }}"
-          GIT_ARGS: "{{ .GIT_ARGS }}"
-      - cmd: >-
-          git
-          -C "{{ fromSlash .TARGET_SOURCE_DIR }}"
-          pull --rebase --recurse-submodules --autostash
-        ignore_error: true
+      - cmd: |
+          echo "Uri: '{{ .URI }}'"
+          echo "Git_Repo: '{{ .GIT_REPO }}'"
+          echo "Username: '{{ .USERNAME }}'"
+          echo "Target_Name: '{{ .TARGET_NAME }}'"
+          echo "Target_Source_Dir: '{{ .TARGET_SOURCE_DIR }}'"
+          echo "Target_Build_Dir: '{{ .TARGET_BUILD_DIR }}'"
+      - task: git-clone
+        if: '{{ .URI }} != ""'
+        vars: { TARGET_DIR: "{{ .TARGET_SOURCE_DIR }}", URI: "{{ .URI }}", GIT_ARGS: "{{ .GIT_ARGS }}" }
       - cmd: >-
           cmake
           -B "{{ fromSlash .TARGET_BUILD_DIR }}"
           -S "{{ fromSlash .TARGET_SOURCE_DIR }}"
-          -DCMAKE_PREFIX_PATH="{{ fromSlash .ILOC }}"
-          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .ILOC }}"
+          -DCMAKE_PREFIX_PATH="{{ fromSlash .PREFIX_PATH }}"
+          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .INSTALL_PREFIX }}"
           {{ .CONFIGURE_ARGS }}
       - cmd: >-
           cmake
@@ -99,11 +122,10 @@ tasks:
           --config "{{ .CONFIG }}"
           --target install
 
-  build-and-install-zlib-ng:
+  cmake-build-zlib-ng:
     cmds:
-      - task: build-and-install
+      - task: cmake-build
         vars:
-          NAME: zlib-ng
           URI: https://github.com/zlib-ng/zlib-ng.git
           CONFIGURE_ARGS: >-
             -DBUILD_SHARED_LIBS=OFF
@@ -111,75 +133,75 @@ tasks:
             -DZLIB_ENABLE_TESTS=OFF
             -DINSTALL_UTILS=OFF
 
-  deps_:
-    deps:
-      - build-and-install-libpng
-      - build-and-install-zlib-ng
-      - build-and-install-libjpeg
-      - build-and-install-libtiff
-
-  deps:
+  clean:
     cmds:
       - cmd: git add .
       - cmd: git clean -xfd
-      - task: deps_
+      - cmd: rm -rf "{{ fromSlash .BUILD_DIR_BASE }}"
+      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
+      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
 
-  build-and-install-libpng:
+  deps:
+    cmds:
+      - task: clean
+      - task: cmake-build-libpng
+      - task: cmake-build-zlib-ng
+      - task: cmake-build-libjpeg
+      - task: cmake-build-libtiff
+
+  cmake-build-libpng:
     vars:
-      NAME: libpng
+      TARGET_NAME: libpng
       FILENAME: lpng1643.zip
-      OUTPUT_ARCHIVE_PATH: '{{ joinPath .ILOC .FILENAME }}'
-      TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .NAME }}'
-      EXTRACTED_ARCHIVE_TARGET_PATH: '{{ joinPath .TARGET_SOURCE_DIR "lpng1643" }}'
-      URI: 'https://download.sourceforge.net/{{ .NAME }}/{{ .FILENAME }}'
+      TARGET_SUB_DIRECTORY: '{{ .FILENAME | splitList "." | first }}'
+      URI: 'https://download.sourceforge.net/{{ .TARGET_NAME }}/{{ .FILENAME }}'
+      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .ILOC .FILENAME }}'
+      TARGET_SOURCE_DIR_TMP: '{{ joinPath .DEP_BUILD_DIR .TARGET_SUB_DIRECTORY }}'
+      TARGET_SOURCE_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
     cmds:
       - cmd: |
-          mkdir -p "{{ fromSlash .ILOC }}"
-          curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_PATH }}" "{{ .URI }}"
+          mkdir -p "{{ .OUTPUT_ARCHIVE_FILE_PATH | dir | fromSlash }}"
+          curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" "{{ .URI }}"
       - cmd: |
-          rm -rf "{{ fromSlash .TARGET_SOURCE_DIR }}"
+          unzip -o -qq -d "{{ fromSlash .TARGET_SOURCE_DIR_TMP }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
           mkdir -p "{{ fromSlash .TARGET_SOURCE_DIR }}"
-          unzip -o -qq -d "{{ fromSlash .TARGET_SOURCE_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_PATH }}"
-          mv -f "{{ fromSlash .EXTRACTED_ARCHIVE_TARGET_PATH }}"/* "{{ fromSlash .TARGET_SOURCE_DIR }}"
-          rm -rf "{{ fromSlash .EXTRACTED_ARCHIVE_TARGET_PATH }}"
-      - task: build-and-install
+          cp -rf "{{ joinPath .TARGET_SOURCE_DIR_TMP .TARGET_SUB_DIRECTORY }}"/* "{{ fromSlash .TARGET_SOURCE_DIR }}"
+          rm -rf "{{ .TARGET_SOURCE_DIR_TMP }}"
+      - task: cmake-build
         vars:
-          NAME: '{{ .NAME }}'
+          TARGET_NAME: '{{ .TARGET_NAME }}'
           TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR }}'
           CONFIGURE_ARGS: >-
             -DPNG_TESTS=OFF
             -DPNG_SHARED=OFF
 
-  build-and-install-libjpeg:
+  cmake-build-libjpeg:
     cmds:
-      - task: build-and-install
+      - task: cmake-build
         vars:
-          NAME: libjpeg-turbo
+          TARGET_NAME: libjpeg-turbo
           URI: https://github.com/libjpeg-turbo/libjpeg-turbo.git
-          TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .NAME }}'
           CONFIGURE_ARGS: >-
             -DWITH_TURBOJPEG=OFF
             -DENABLE_SHARED=OFF
 
-  build-and-install-jbigkit:
+  cmake-build-jbigkit:
     cmds:
-      - task: build-and-install
+      - task: cmake-build
         vars:
-          NAME: jbigkit
+          TARGET_NAME: jbigkit
           URI: https://github.com/zdenop/jbigkit.git
-          TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .NAME }}'
           CONFIGURE_ARGS: >-
             -DBUILD_PROGRAMS=OFF
             -DBUILD_TOOLS=OFF
             -DCMAKE_WARN_DEPRECATED=OFF
 
-  build-and-install-libtiff:
+  cmake-build-libtiff:
     cmds:
-      - task: build-and-install
+      - task: cmake-build
         vars:
-          NAME: libtiff
+          TARGET_NAME: libtiff
           URI: https://gitlab.com/libtiff/libtiff.git
-          TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .NAME }}'
           GIT_ARGS: -c advice.detachedHead=false -b "v4.6.0"
           CONFIGURE_ARGS: >-
             -Dtiff-tools=OFF
@@ -187,13 +209,12 @@ tasks:
             -Dtiff-contrib=OFF
             -Dtiff-docs=OFF
 
-  build-and-install-leptonica:
+  cmake-build-leptonica:
     cmds:
-      - task: build-and-install
+      - task: cmake-build
         vars:
-          NAME: leptonica
+          TARGET_NAME: leptonica
           URI: https://github.com/DanBloomberg/leptonica.git
-          TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .NAME }}'
           CONFIGURE_ARGS: >-
             -DSW_BUILD=OFF
             -DBUILD_PROG=OFF
@@ -203,11 +224,11 @@ tasks:
     cmds:
       - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
 
-  build-and-install-tesseract:
+  cmake-build-tesseract:
     vars:
-      NAME: tesseract
+      TARGET_NAME: tesseract
       CONFIG: '{{ default "Release" .CONFIG }}'
-      TARGET_BUILD_DIR: '{{ joinPath .BUILD_DIR .NAME }}'
+      TARGET_BUILD_DIR: '{{ joinPath .BUILD_DIR .TARGET_NAME }}'
     cmds:
       - cmd: >-
           cmake
