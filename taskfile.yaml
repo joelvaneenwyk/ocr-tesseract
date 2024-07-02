@@ -157,9 +157,8 @@ tasks:
     preconditions:
       - git --version
       - test -d "{{ .TARGET_DIR }}"
-    cmds:
-      - cmd: |
-          git -C "{{ fromSlash .TARGET_DIR }}" pull --rebase --recurse-submodules --autostash
+    dir: '{{ .TARGET_DIR }}'
+    cmd: git pull --rebase --autostash || true
 
   clean:
     cmds:
@@ -228,32 +227,40 @@ tasks:
             -DZLIB_ENABLE_TESTS=OFF
             -DINSTALL_UTILS=OFF
 
+  normalize-file-ending:
+    vars:
+      TARGET_FILE_PATH: '{{ default "" .TARGET_FILE_PATH }}'
+    preconditions:
+      - awk --version
+    cmds:
+      - awk '{ sub("\r$", ""); print }' "{{ fromSlash .TARGET_FILE_PATH }}" > "{{ fromSlash .TARGET_FILE_PATH }}"
+
   dependency-libpng:
     vars:
       URI: 'https://download.sourceforge.net/libpng/lpng1643.zip'
       TARGET_NAME: '{{ .URI | splitList "/" | reverse | rest | first }}'  # libpng
       FILENAME: '{{ .URI | splitList "/" | last }}'  # lpng1643.zip
-      TARGET_SUB_DIRECTORY: '{{ .FILENAME | splitList "." | first }}'
+      TARGET_SUB_DIRECTORY: '{{ .FILENAME | splitList "." | first }}'  # lpng1643
       OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .FILENAME }}'
-      TARGET_SOURCE_DIR_TMP: '{{ joinPath .DEP_SOURCE_DIR .TARGET_SUB_DIRECTORY }}'
-      TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
+      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_SUB_DIRECTORY }}'
+      TARGET_SOURCE_DIR: '{{ joinPath .OUTPUT_UNZIP_DIR .TARGET_SUB_DIRECTORY }}'
     silent: true
     cmds:
       - cmd: |
           mkdir -p \
             "{{ .OUTPUT_ARCHIVE_FILE_PATH | dir | fromSlash }}" \
-            "{{ fromSlash .TARGET_SOURCE_DIR_TMP }}" \
-            "{{ fromSlash .TARGET_SOURCE_DIR }}"
+            "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
       - cmd: |
           if [ ! -e "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" ]; then
             curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" "{{ .URI }}"
           fi
       - cmd: |
-          unzip -o -qq -d "{{ fromSlash .TARGET_SOURCE_DIR_TMP }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
-      - cmd: |
-          cp -rf "{{ joinPath .TARGET_SOURCE_DIR_TMP .TARGET_SUB_DIRECTORY }}"/* "{{ fromSlash .TARGET_SOURCE_DIR }}"
+          unzip -o -qq -d "{{ fromSlash .OUTPUT_UNZIP_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
+      - task: normalize-file-ending
+        vars: { TARGET_FILE_PATH: '{{ joinPath .TARGET_SOURCE_DIR "scripts/pnglibconf.dfa" }}' }
       - task: cmake-build
         vars:
+          TARGET_NAME: '{{ .TARGET_NAME }}'
           TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR }}'
           CONFIGURE_ARGS: >-
             -DPNG_TESTS=OFF
