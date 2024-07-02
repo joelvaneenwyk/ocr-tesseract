@@ -1,0 +1,11 @@
+version: "0.2"
+ignorePaths: []
+dictionaryDefinitions:
+  - name: tesseract
+    path: ./.github/configs/cspell-tesseract.dict
+    addWords: true
+dictionaries:
+  - tesseract
+words: []
+ignoreWords: []
+import: []
