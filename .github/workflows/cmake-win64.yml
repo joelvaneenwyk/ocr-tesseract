@@ -144,4 +144,10 @@ jobs:
       - name: Install Task
         uses: arduino/setup-task@v2
 
-      - run: task
+      - run: task dependency-zlib-ng
+      - run: task dependency-libpng
+      - run: task dependency-libjpeg
+      - run: task dependency-jbigkit
+      - run: task dependency-libtiff
+      - run: task dependency-leptonica
+      - run: task build-tesseract

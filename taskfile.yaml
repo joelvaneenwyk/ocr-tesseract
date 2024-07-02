@@ -3,16 +3,25 @@
 version: "3"
 
 vars:
+  VERSION:
+    sh: git describe --tags HEAD || echo "0.0.1.unknown"
+
   BUILD_DIR_BASE: '{{ joinPath .TASKFILE_DIR ".build" }}'
   BUILD_OS: '{{if eq .OS "windows"}}windows{{else}}{{if eq .OS "darwin"}}darwin{{else}}linux{{end}}{{end}}'
   BUILD_DIR: '{{ joinPath .BUILD_DIR_BASE .BUILD_OS }}'
+
   DEP_SOURCE_DIR: '{{ joinPath .BUILD_DIR "source" }}'
   DEP_BUILD_DIR: '{{ joinPath .BUILD_DIR "out" }}'
   DEP_ARCHIVE_DIR: '{{ joinPath .BUILD_DIR "archives" }}'
+
   ILOC: '{{ joinPath .BUILD_DIR "install" }}'
-  PREFIX_PATH: '{{ .ILOC }}'
-  VERSION:
-    sh: git describe --tags HEAD || echo "0.0.1.unknown"
+
+  # https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html
+  # Semicolon-separated list of directories specifying installation prefixes to be searched by the find_package(),
+  # find_program(), find_library(), find_file(), and find_path() commands. Each command will add appropriate
+  # subdirectories (like bin, lib, or include) as specified in its own documentation.
+  PREFIX_PATH: '{{ .ILOC }};{{ .TASKFILE_DIR }}/external/vcpkg;{{ .TASKFILE_DIR }}'
+
   TESSDATA_PREFIX: '{{ .ILOC }}/share/tessdata'
   TESSERACT_BIN_DIR: '{{ .ILOC }}/tesseract/bin'
 
@@ -46,31 +55,19 @@ tasks:
       - task: build-tesseract
 
   build-tesseract:
-    internal: true
-    vars:
-      TARGET_NAME: tesseract
-      CONFIG: '{{ default "Release" .CONFIG }}'
-      TARGET_BUILD_DIR: '{{ joinPath .BUILD_DIR .TARGET_NAME }}'
     cmds:
-      - cmd: >-
-          cmake
-          -B "{{ fromSlash .TARGET_BUILD_DIR }}"
-          -S "{{ fromSlash .TASKFILE_DIR }}"
-          -DCMAKE_BUILD_TYPE="{{ .CONFIG }}"
-          -DCMAKE_PREFIX_PATH="{{ .PREFIX_PATH }}"
-          -DCMAKE_INSTALL_PREFIX="{{ .INSTALL_PREFIX }}"
-          -DBUILD_SHARED_LIBS=ON
-          -DBUILD_TRAINING_TOOLS=OFF
-          -DENABLE_LTO=ON
-          -DFAST_FLOAT=ON
-          -DGRAPHICS_DISABLED=ON
-          -DOPENMP_BUILD=OFF
-          -DSW_BUILD=OFF
-      - cmd: >-
-          cmake
-          --build "{{ fromSlash .TARGET_BUILD_DIR }}"
-          --config "{{ .CONFIG }}"
-          --target install
+      - task: cmake-build
+        vars:
+          TARGET_NAME: tesseract
+          TARGET_SOURCE_DIR: "{{ fromSlash .TASKFILE_DIR }}"
+          CONFIGURE_ARGS: >
+            -DBUILD_SHARED_LIBS=ON
+            -DBUILD_TRAINING_TOOLS=OFF
+            -DENABLE_LTO=ON
+            -DFAST_FLOAT=ON
+            -DGRAPHICS_DISABLED=ON
+            -DOPENMP_BUILD=OFF
+            -DSW_BUILD=OFF
       - task: get-tesseract-data
 
   get-tesseract-info:
@@ -137,11 +134,13 @@ tasks:
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
     preconditions:
       - git --version
-    status:
-      - test -z "{{ .URI }}" || test -d "{{ .TARGET_DIR }}"
     cmds:
       - cmd: |
-          if [ -n "{{ .URI }}" ]; then
+          if [ -z "$(ls -A "{{ fromSlash .TARGET_DIR }}")" ]; then
+            rm -rf "{{ fromSlash .TARGET_DIR }}"
+          fi
+      - cmd: |
+          if [ -n "{{ .URI }}" ] && [ ! -d "{{ fromSlash .TARGET_DIR }}" ]; then
             git clone {{ .GIT_ARGS }} --depth 1 "{{ .URI }}" "{{ fromSlash .TARGET_DIR }}"
           else
             echo "Skipped empty clone."
@@ -166,11 +165,14 @@ tasks:
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
       CONFIGURE_ARGS: '{{ default "" .CONFIGURE_ARGS }}'
 
+      INPUT_TARGET_SOURCE_DIR: '{{ default .TASKFILE_DIR .TARGET_SOURCE_DIR }}'
+      INPUT_TARGET_SOURCE_DIR_NAME: '{{ .INPUT_TARGET_SOURCE_DIR | splitList "/" | last }}'
+
       GIT_REPO: '{{ .URI | splitList "/" | reverse | first }}'
       USERNAME: '{{ .URI | splitList "/" | reverse | rest | first }}'
       REPO: '{{ .GIT_REPO | splitList "." | first }}'
 
-      DEFAULT_TARGET_NAME: '{{ .REPO }}'
+      DEFAULT_TARGET_NAME: '{{ coalesce .REPO .INPUT_TARGET_SOURCE_DIR_NAME }}'
 
       TARGET_NAME: '{{ default .DEFAULT_TARGET_NAME .TARGET_NAME }}'
 
@@ -178,11 +180,13 @@ tasks:
 
       TARGET_SOURCE_DIR: '{{ default .TARGET_SOURCE_DEFAULT_DIR .TARGET_SOURCE_DIR }}'
       TARGET_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
+      TARGET_PREFIX_PATH: '{{ .PREFIX_PATH }};{{ .TARGET_SOURCE_DIR }};{{ .TARGET_BUILD_DIR }}'
 
       INSTALL_PREFIX: '{{ joinPath .ILOC .TARGET_NAME }}'
     status:
       - test -d "{{ .TARGET_BUILD_DIR }}"
       - test -d "{{ .TARGET_SOURCE_DIR }}"
+    dir: '{{ .TARGET_SOURCE_DIR }}'
     cmds:
       - task: git-clone
         vars: { TARGET_DIR: "{{ .TARGET_SOURCE_DIR }}", URI: "{{ .URI }}", GIT_ARGS: "{{ .GIT_ARGS }}" }
@@ -190,14 +194,16 @@ tasks:
           cmake
           -B "{{ fromSlash .TARGET_BUILD_DIR }}"
           -S "{{ fromSlash .TARGET_SOURCE_DIR }}"
-          -DCMAKE_PREFIX_PATH="{{ fromSlash .PREFIX_PATH }}"
+          -DCMAKE_PREFIX_PATH="{{ fromSlash .TARGET_PREFIX_PATH }}"
           -DCMAKE_INSTALL_PREFIX="{{ fromSlash .INSTALL_PREFIX }}"
+          -DCMAKE_EXECUTE_PROCESS_COMMAND_ECHO="STDOUT"
           {{ .CONFIGURE_ARGS }}
       - cmd: >-
           cmake
           --build "{{ fromSlash .TARGET_BUILD_DIR }}"
           --config "{{ .CONFIG }}"
           --target install
+          --verbose
 
   dependency-zlib-ng:
     cmds:
