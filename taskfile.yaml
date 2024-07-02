@@ -73,6 +73,8 @@ tasks:
       TARGET_BUILD_DIR: '{{ joinPath .BUILD_DIR .NAME }}'
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
       CONFIGURE_ARGS: '{{ default "" .CONFIGURE_ARGS }}'
+      PREFIX_PATH: '{{ .ILOC }}'
+      INSTALL_PREFIX: '{{ joinPath .ILOC .NAME }}'
     cmds:
       - task: build-and-install-clone
         vars:
@@ -88,8 +90,8 @@ tasks:
           cmake
           -B "{{ fromSlash .TARGET_BUILD_DIR }}"
           -S "{{ fromSlash .TARGET_SOURCE_DIR }}"
-          -DCMAKE_PREFIX_PATH="{{ .ILOC }}"
-          -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}"
+          -DCMAKE_PREFIX_PATH="{{ fromSlash .ILOC }}"
+          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .ILOC }}"
           {{ .CONFIGURE_ARGS }}
       - cmd: >-
           cmake
@@ -108,6 +110,19 @@ tasks:
             -DZLIB_COMPAT=ON
             -DZLIB_ENABLE_TESTS=OFF
             -DINSTALL_UTILS=OFF
+
+  deps_:
+    deps:
+      - build-and-install-libpng
+      - build-and-install-zlib-ng
+      - build-and-install-libjpeg
+      - build-and-install-libtiff
+
+  deps:
+    cmds:
+      - cmd: git add .
+      - cmd: git clean -xfd
+      - task: deps_
 
   build-and-install-libpng:
     vars:
@@ -186,7 +201,7 @@ tasks:
 
   remove-not-needed-tools-before-building-tesseract:
     cmds:
-      - cmd: rm -Rf {{ .ILOC }}/bin/*.exe
+      - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
 
   build-and-install-tesseract:
     vars:
