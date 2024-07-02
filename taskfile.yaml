@@ -57,8 +57,8 @@ tasks:
       TARGET_DIR: '{{ default "" .TARGET_DIR }}'
     preconditions:
       - git --version
-      - test -n "{{ .URI }}"
     status:
+      - test -z "{{ .URI }}"
       - test -d "{{ .TARGET_DIR }}"
     cmds:
       - cmd: git clone --depth 1 "{{ .URI }}" "{{ fromSlash .TARGET_DIR }}"
@@ -70,6 +70,7 @@ tasks:
       CONFIG: '{{ default "Release" .CONFIG }}'
       TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .NAME }}'
       TARGET_BUILD_DIR: '{{ joinPath .BUILD_DIR .NAME }}'
+      CONFIGURE_ARGS: '{{ default "" .CONFIGURE_ARGS }}'
     cmds:
       - task: build-and-install-clone
         vars:
@@ -86,10 +87,7 @@ tasks:
           -S "{{ fromSlash .TARGET_SOURCE_DIR }}"
           -DCMAKE_PREFIX_PATH="{{ .ILOC }}"
           -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}"
-          -DBUILD_SHARED_LIBS=OFF
-          -DZLIB_COMPAT=ON
-          -DZLIB_ENABLE_TESTS=OFF
-          -DINSTALL_UTILS=OFF
+          {{ .CONFIGURE_ARGS }}
       - cmd: >-
           cmake
           --build "{{ fromSlash .TARGET_BUILD_DIR }}"
@@ -102,6 +100,11 @@ tasks:
         vars:
           NAME: zlib-ng
           URI: https://github.com/zlib-ng/zlib-ng.git
+          CONFIGURE_ARGS: >-
+            -DBUILD_SHARED_LIBS=OFF
+            -DZLIB_COMPAT=ON
+            -DZLIB_ENABLE_TESTS=OFF
+            -DINSTALL_UTILS=OFF
 
   build-and-install-libpng:
     vars:
@@ -113,20 +116,21 @@ tasks:
       URI: 'https://download.sourceforge.net/{{ .NAME }}/{{ .FILENAME }}'
     cmds:
       - cmd: |
+          mkdir -p "{{ fromSlash .ILOC }}"
           curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_PATH }}" "{{ .URI }}"
+      - cmd: |
+          rm -rf "{{ fromSlash .TARGET_SOURCE_DIR }}"
           mkdir -p "{{ fromSlash .TARGET_SOURCE_DIR }}"
           unzip -o -qq -d "{{ fromSlash .TARGET_SOURCE_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_PATH }}"
-          mv "{{ fromSlash .EXTRACTED_ARCHIVE_TARGET_PATH }}"/* "{{ fromSlash .TARGET_SOURCE_DIR }}"
+          mv -f "{{ fromSlash .EXTRACTED_ARCHIVE_TARGET_PATH }}"/* "{{ fromSlash .TARGET_SOURCE_DIR }}"
           rm -rf "{{ fromSlash .EXTRACTED_ARCHIVE_TARGET_PATH }}"
-      #- task: build-and-install
-      #  vars:
-      #    NAME: '{{ .NAME }}'
-      #    URI: '{{ .URI }}'
-      #    TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR }}'
-      #  #  cd lpng1643
-      #  #  cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="{{ .ILOC }}" -DCMAKE_INSTALL_PREFIX="{{ .ILOC }}" -DPNG_TESTS=OFF -DPNG_SHARED=OFF
-      #  #  cmake --build build --config Release --target install
-      #  #  cd ..
+      - task: build-and-install
+        vars:
+          NAME: '{{ .NAME }}'
+          TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR }}'
+          CONFIGURE_ARGS: >-
+            -DPNG_TESTS=OFF
+            -DPNG_SHARED=OFF
 
   build-and-install-libjpeg:
     cmds:
