@@ -31,7 +31,6 @@ tasks:
       - task: tesseract
 
   init:
-    internal: true
     deps: [git-init, dependency-nasm, remove-strawberry-perl]
     cmds:
       - task: build-dependencies
@@ -141,12 +140,18 @@ tasks:
 
   remove-strawberry-perl:
     platforms: [windows]
+    vars:
+      INSTALLED_PERL_PACKAGES:
+        sh: choco list --yes --fail-on-error-output --by-id-only strawberryperl
+      NO_PACKAGES_FOUND: '{{ contains "0 packages installed" .INSTALLED_PERL_PACKAGES }}'
     status:
+      - '{{ .NO_PACKAGES_FOUND }}'
       - choco --version
-      - choco list --local-only | grep -q strawberryperl
-    cmds:
-      - cmd: choco uninstall strawberryperl
-        ignore_error: true
+    cmd: >-
+      choco uninstall
+      --ignoreAutoUninstallerFailure
+      --yes
+      strawberryperl
 
   git-clone:
     vars:
