@@ -117,5 +117,8 @@ times.txt
 /*_source.tar.bz2
 
 /.local/
-/
+/.build/
+
+/libpng/
 /zlib-ng/
+/*.zip
