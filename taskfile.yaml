@@ -12,34 +12,19 @@ vars:
   ILOC: '{{ joinPath .BUILD_DIR "install" }}'
   PREFIX_PATH: '{{ .ILOC }}'
   VERSION:
-    sh: git describe --tags HEAD
+    sh: git describe --tags HEAD || echo "0.0.1.unknown"
 
 tasks:
   default:
     cmds:
       - task: build
 
-  uri:
-    vars:
-      URI: '{{ default "https://github.com/zdenop/jbigkit.git" .URI }}'
-      GIT_REPO: '{{ .URI | splitList "/" | last }}'
-      USERNAME: '{{ .URI | dir | splitList "/" | last }}'
-      REPO: '{{ .GIT_REPO | splitList "." | first }}'
-    cmds:
-      - cmd: 'echo "{{ .GIT_REPO }}"'
-      - cmd: 'echo "{{ .USERNAME }}"'
-      - cmd: 'echo "{{ .REPO }}"'
-
-  test:
-    cmds:
-      - cmd: 'echo "{{ .ILOC }}"'
-      - cmd: 'echo "{{ .VERSION }}"'
-
   build:
     name: cmake-win64
     runs-on: windows-latest
     cmds:
       - cmd: scoop install nasm
+        platforms: [windows]
       - task: task-checkout
       - task: uninstall-perl
       - task: cmake-build-zlib-ng
@@ -55,27 +40,22 @@ tasks:
   task-checkout:
     cmds:
       - cmd: git submodule update --recursive --checkout --init
-      - cmd: git fetch --prune --unshallow --tags
-        ignore_error: true
-      - cmd: mkdir "{{ fromSlash .ILOC }}"
-        ignore_error: true
+      - cmd: mkdir -p "{{ fromSlash .ILOC }}"
 
   uninstall-perl:
+    platforms: [windows]
+    status:
+      - choco --version
+      - choco list --local-only | grep -q strawberryperl
     cmds:
       - cmd: choco uninstall strawberryperl
         ignore_error: true
 
   git-clone:
-    required: [URI]
     vars:
+      TARGET_DIR: '{{ default "" .TARGET_DIR }}'
       URI: '{{ default "" .URI }}'
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
-      GIT_REPO: '{{ .URI | splitList "/" | last }}'
-      USERNAME: '{{ .URI | dir | splitList "/" | last }}'
-      REPO_PARSED: '{{ .GIT_REPO | splitList "." | first }}'
-      REPO: '{{ coalesce .REPO_PARSED "unknown_repo" }}'
-      TARGET_DIR_DEFAULT: '{{ joinPath .DEP_SOURCE_DIR .REPO }}'
-      TARGET_DIR: '{{ default .TARGET_DIR_DEFAULT .TARGET_DIR }}'
     preconditions:
       - git --version
     status:
@@ -103,26 +83,28 @@ tasks:
   cmake-build:
     vars:
       URI: '{{ default "" .URI }}'
-      GIT_REPO: '{{ .URI | splitList "/" | last }}'
-      USERNAME: '{{ .URI | dir | splitList "/" | last }}'
-      REPO: '{{ .GIT_REPO | splitList "." | first }}'
-      TARGET_SOURCE_NAME: '{{ coalesce .TARGET_SOURCE_DIR .TARGET_NAME "" | splitList "/" | last }}'
-      TARGET_NAME: '{{ coalesce .TARGET_NAME .TARGET_SOURCE_NAME .REPO }}'
       CONFIG: '{{ default "Release" .CONFIG }}'
-      TARGET_SOURCE_DEFAULT_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
-      TARGET_SOURCE_DIR: '{{ default .TARGET_SOURCE_DEFAULT_DIR .TARGET_SOURCE_DIR }}'
-      TARGET_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
       CONFIGURE_ARGS: '{{ default "" .CONFIGURE_ARGS }}'
+
+      GIT_REPO: '{{ .URI | splitList "/" | reverse | first }}'
+      USERNAME: '{{ .URI | splitList "/" | reverse | rest | first }}'
+      REPO: '{{ .GIT_REPO | splitList "." | first }}'
+
+      DEFAULT_TARGET_NAME: '{{ .REPO }}'
+
+      TARGET_NAME: '{{ default .DEFAULT_TARGET_NAME .TARGET_NAME }}'
+
+      TARGET_SOURCE_DEFAULT_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
+
+      TARGET_SOURCE_DIR: '{{ default .TARGET_SOURCE_DEFAULT_DIR .TARGET_SOURCE_DIR }}'
+      TARGET_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
+
       INSTALL_PREFIX: '{{ joinPath .ILOC .TARGET_NAME }}'
+    status:
+      - test -d "{{ .TARGET_BUILD_DIR }}"
+      - test -d "{{ .TARGET_SOURCE_DIR }}"
     cmds:
-      - cmd: |
-          echo "Uri: '{{ .URI }}'"
-          echo "Git_Repo: '{{ .GIT_REPO }}'"
-          echo "Username: '{{ .USERNAME }}'"
-          echo "Target_Name: '{{ .TARGET_NAME }}'"
-          echo "Target_Source_Dir: '{{ .TARGET_SOURCE_DIR }}'"
-          echo "Target_Build_Dir: '{{ .TARGET_BUILD_DIR }}'"
       - task: git-clone
         vars: { TARGET_DIR: "{{ .TARGET_SOURCE_DIR }}", URI: "{{ .URI }}", GIT_ARGS: "{{ .GIT_ARGS }}" }
       - cmd: >-
@@ -142,12 +124,18 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          URI: https://github.com/zlib-ng/zlib-ng.git
-          CONFIGURE_ARGS: >-
+          URI: "https://github.com/zlib-ng/zlib-ng.git"
+          CONFIGURE_ARGS: >
             -DBUILD_SHARED_LIBS=OFF
             -DZLIB_COMPAT=ON
             -DZLIB_ENABLE_TESTS=OFF
             -DINSTALL_UTILS=OFF
+
+
+
+
+
+
 
   clean:
     cmds:
