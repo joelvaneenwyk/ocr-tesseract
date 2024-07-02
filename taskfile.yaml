@@ -28,6 +28,15 @@ tasks:
       - cmd: echo "Building Tesseract OCR 'v{{ .VERSION }}'"
       - task: tesseract
 
+  update:
+    preconditions:
+      - git --version
+      - test -d "{{ .TASKFILE_DIR }}/.git"
+    cmds:
+      - cmd: git -C "{{ .TASKFILE_DIR }}" add .
+      - cmd: git -C "{{ .TASKFILE_DIR }}" fetch
+      - cmd: git -C "{{ .TASKFILE_DIR }}" pull --rebase --autostash
+
   #
   # Tesseract
   #
@@ -95,7 +104,13 @@ tasks:
       - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
 
   init:
-    deps: [git-init, dependency-nasm, remove-strawberry-perl]
+    # We are intentionally executing these tasks serially to avoid errors that occur
+    # when installing multiple packages at the same time.
+    cmds:
+      - task: git-init
+      - task: dependency-nasm
+      - task: dependency-unzip
+      - task: remove-strawberry-perl
 
   #
   # Utilities
@@ -128,7 +143,13 @@ tasks:
       - nasm --version
     cmds:
       - cmd: scoop install nasm
-        platforms: [windows]
+
+  dependency-unzip:
+    platforms: [windows]
+    status:
+      - unzip -v
+    cmds:
+      - cmd: scoop install unzip
 
   git-init:
     internal: true
@@ -154,13 +175,13 @@ tasks:
 
   remove-empty-directory:
     vars:
-      TARGET_DIR: '{{ default "" .TARGET_DIR }}'
-    silent: true
+      TARGET_DIR_TO_REMOVE_DEFAULT: '{{ joinPath .DEP_BUILD_DIR "INVALID_BROKEN_PATH" }}'
+      TARGET_DIR_TO_REMOVE: '{{ .TARGET_DIR_PATH | default .TARGET_DIR_TO_REMOVE_DEFAULT }}'
     cmds:
-      - cmd: cmd.exe /D /C rmdir "{{ fromSlash .TARGET_DIR }}"
+      - cmd: cmd.exe /D /C if exist "{{ fromSlash .TARGET_DIR_TO_REMOVE }}" rmdir "{{ fromSlash .TARGET_DIR_TO_REMOVE }}"
         platforms: [windows]
         ignore_error: true
-      - cmd: rmdir "{{ toSlash .TARGET_DIR }}"
+      - cmd: rmdir "{{ toSlash .TARGET_DIR_TO_REMOVE }}"
         platforms: [linux, darwin]
         ignore_error: true
 
@@ -175,7 +196,7 @@ tasks:
       - test -z "{{ .TARGET_DIR }}"
     cmds:
       - task: remove-empty-directory
-        vars: { TARGET_DIR: '{{ .TARGET_DIR }}' }
+        vars: { TARGET_DIR_PATH: '{{ .TARGET_DIR }}' }
       - cmd: |
           if [ -n "{{ .URI }}" ] && [ ! -d "{{ toSlash .TARGET_DIR }}" ]; then
             git clone {{ .GIT_ARGS }} --depth 1 "{{ .URI }}" "{{ fromSlash .TARGET_DIR }}"
@@ -219,20 +240,18 @@ tasks:
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
       CONFIGURE_ARGS: '{{ default "" .CONFIGURE_ARGS }}'
 
-      INPUT_TARGET_SOURCE_DIR: '{{ default .TASKFILE_DIR .TARGET_SOURCE_DIR }}'
-      INPUT_TARGET_SOURCE_DIR_NAME: '{{ .INPUT_TARGET_SOURCE_DIR | splitList "/" | last }}'
-
       GIT_REPO: '{{ .URI | splitList "/" | reverse | first }}'
       USERNAME: '{{ .URI | splitList "/" | reverse | rest | first }}'
       REPO: '{{ .GIT_REPO | splitList "." | first }}'
 
-      DEFAULT_TARGET_NAME: '{{ coalesce .REPO .INPUT_TARGET_SOURCE_DIR_NAME }}'
+      INPUT_TARGET_SOURCE_DIR: '{{ default .TASKFILE_DIR .TARGET_SOURCE_DIR }}'
+      DEFAULT_TARGET_NAME: '{{ .INPUT_TARGET_SOURCE_DIR | toSlash | splitList "/" | last | default .REPO }}'
 
-      TARGET_NAME: '{{ default .DEFAULT_TARGET_NAME .TARGET_NAME }}'
+      TARGET_NAME: '{{ .TARGET_NAME | default .DEFAULT_TARGET_NAME  }}'
 
       TARGET_SOURCE_DEFAULT_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
 
-      TARGET_SOURCE_DIR: '{{ default .TARGET_SOURCE_DEFAULT_DIR .TARGET_SOURCE_DIR }}'
+      TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR | default .TARGET_SOURCE_DEFAULT_DIR }}'
       TARGET_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
 
       # https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html
@@ -264,6 +283,17 @@ tasks:
       - test -f "{{ .TARGET_OUTPUT_TEST_PATH }}"
     dir: '{{ .TARGET_SOURCE_DIR }}'
     cmds:
+      - cmd: |
+          echo "INPUT_TARGET_SOURCE_DIR // {{ .INPUT_TARGET_SOURCE_DIR }}"
+          echo "DEFAULT_TARGET_NAME // {{ .DEFAULT_TARGET_NAME }}"
+          echo "TARGET_NAME // {{ .TARGET_NAME }}"
+          echo "TARGET_SOURCE_DEFAULT_DIR // {{ .TARGET_SOURCE_DEFAULT_DIR }}"
+          echo "TARGET_SOURCE_DIR // {{ .TARGET_SOURCE_DIR }}"
+          echo "TARGET_BUILD_DIR // {{ .TARGET_BUILD_DIR }}"
+          echo "TARGET_PREFIX_PATH // {{ .TARGET_PREFIX_PATH }}"
+          echo "INSTALL_PREFIX // {{ .INSTALL_PREFIX }}"
+          echo "TARGET_OUTPUT_TEST_FILE // {{ .TARGET_OUTPUT_TEST_FILE }}"
+          echo "TARGET_OUTPUT_TEST_PATH // {{ .TARGET_OUTPUT_TEST_PATH }}"
       - task: git-clone
         vars: { TARGET_DIR: "{{ .TARGET_SOURCE_DIR }}", URI: "{{ .URI }}", GIT_ARGS: "{{ .GIT_ARGS }}" }
       - cmd: >-
@@ -322,6 +352,29 @@ tasks:
       - cmd: |
           curl -L "{{ .URI }}" --output "{{ fromSlash .TARGET_PATH }}"
 
+  copy-source-to-target:
+    vars:
+      CP_SOURCE_DIR: '{{ default .TASKFILE_DIR .CP_SOURCE_DIR }}'
+      CP_TARGET_DIR: '{{ default .TASKFILE_DIR .CP_TARGET_DIR }}'
+      OUTPUT_DIR_CMD: cmd.exe /D /C dir /b /a:d "{{ fromSlash .CP_SOURCE_DIR }}"
+      OUTPUT_DIR_BASH: ls "{{ toSlash .CP_SOURCE_DIR }}"
+      LS: '{{if eq OS "windows"}}{{.OUTPUT_DIR_CMD}}{{else}}{{.OUTPUT_DIR_BASH}}{{end}}'
+      LS_OUTPUT:
+        sh: '{{ .LS }}'
+      OUTPUT_DIR_COMBINED: '{{ .LS_OUTPUT | splitLines | uniq | sortAlpha | first }}'
+      SOURCE_DIR: '{{ joinPath .CP_SOURCE_DIR .OUTPUT_DIR_COMBINED }}'
+    cmds:
+      - task: make-dir
+        vars: { TARGET_DIR: '{{ .CP_TARGET_DIR }}' }
+      - cmd: |
+          xcopy /E /Y /I "{{ fromSlash .SOURCE_DIR }}" "{{ fromSlash .CP_TARGET_DIR }}"
+        platforms: [windows]
+      - cmd: |
+          cp -Ru "{{ .SOURCE_DIR }}"/* "{{ .CP_TARGET_DIR }}"
+        platforms: [linux, darwin]
+      - cmd: |
+          echo "Copied {{ shellQuote .SOURCE_DIR }} to {{ shellQuote .CP_TARGET_DIR }}"
+
   dependency-libpng:
     aliases: [libpng, png]
     vars:
@@ -333,7 +386,7 @@ tasks:
       PNG_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .PNG_TARGET_NAME }}'
       OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .PNG_TARGET_NAME | fromSlash }}'
       TARGET_EXTENSION: '{{ .PNG_TMP_FILENAME | splitList "." | last }}'
-      TARGET_SOURCE_DIR: '{{ fromSlash .PNG_TARGET_SOURCE_DIR }}'
+      TARGET_SOURCE_DIR: '{{ .PNG_TARGET_SOURCE_DIR }}'
       OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .PNG_TMP_FILENAME }}'
       OUTPUT_ARCHIVE_DIR: '{{ .DEP_ARCHIVE_DIR }}'
     silent: true
@@ -348,12 +401,10 @@ tasks:
           else
             tar -xf "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
           fi
-      - task: make-dir
-        vars: { TARGET_DIR: '{{ .TARGET_SOURCE_DIR }}' }
-      - cmd: |
-          extracted_folder_name="$(ls "{{ .OUTPUT_UNZIP_DIR }}" | head -1)"
-          cp -Ru "{{ .OUTPUT_UNZIP_DIR }}/$extracted_folder_name"/* "{{ .TARGET_SOURCE_DIR }}"
-          echo "Copied updated source files from archive to target: '{{ .TARGET_SOURCE_DIR }}'"
+      - task: copy-source-to-target
+        vars:
+          CP_SOURCE_DIR: '{{ .OUTPUT_UNZIP_DIR }}'
+          CP_TARGET_DIR: '{{ .TARGET_SOURCE_DIR }}'
       - task: cmake-build
         vars:
           TARGET_NAME: '{{ .TARGET_NAME }}'
@@ -361,6 +412,7 @@ tasks:
           CONFIGURE_ARGS: >-
             -DPNG_TESTS=OFF
             -DPNG_SHARED=OFF
+
 
   dependency-libjpeg:
     aliases: [libjpeg, jpeg]
