@@ -11,7 +11,7 @@ vars:
 
   BUILD_DIR_NAME: '{{ .BUILD_DIR_NAME | default ".build" }}'
   BUILD_DIR_ROOT: '{{ joinPath .TASKFILE_DIR .BUILD_DIR_NAME }}'
-  BUILD_DIR: '{{ joinPath .TASKFILE_DIR .BUILD_DIR_ROOT .BUILD_OS }}'
+  BUILD_DIR: '{{ joinPath .BUILD_DIR_ROOT .BUILD_OS }}'
 
   DEP_SOURCE_DIR: '{{ joinPath .BUILD_DIR "source" }}'
   DEP_BUILD_DIR: '{{ joinPath .BUILD_DIR "out" }}'
@@ -36,36 +36,39 @@ tasks:
     deps: [tesseract-build, tesseract-data]
     vars:
       CLI_ARGS: '{{ default "--version" .CLI_ARGS }}'
-      TESSERACT_BIN_DIR: '{{ joinPath .ILOC "tesseract" "bin" }}'
-      TESSERACT_LIB_DIR: '{{ joinPath .ILOC "tesseract" "lib" }}'
-      TESSERACT_RAW_PATHS: |
-        {{ .TESSERACT_BIN_DIR }}
-        {{ .TESSERACT_LIB_DIR }}
+      TESSERACT_PATH_ARRAY: |
+        {{ joinPath .ILOC "tesseract" "bin" }}
+        {{ joinPath .ILOC "tesseract" "lib" }}
         {{ joinPath .ILOC "leptonica" "lib" }}
         {{ joinPath .ILOC "libtiff" "lib" }}
-      TESSERACT_PATHS: '{{ splitLines .TESSERACT_RAW_PATHS | uniq | compact | sortAlpha | join ":" }}'
-    env:
-      CLI_ARGS: '{{ .CLI_ARGS }}'
-      TESSERACT_BIN_DIR: '{{ fromSlash .TESSERACT_BIN_DIR }}'
-      TESSERACT_LIB_DIR: '{{ fromSlash .TESSERACT_LIB_DIR }}'
-      TESSERACT_PATHS: '{{ .TESSERACT_PATHS }}'
+      TESSERACT_PATHS: '{{ splitLines .TESSERACT_PATH_ARRAY | uniq | compact | sortAlpha | join ":" }}'
     silent: true
     cmd: |
-      export PATH="$TESSERACT_PATHS:$PATH"
-      export LD_LIBRARY_PATH="$TESSERACT_PATHS:$LD_LIBRARY_PATH"
-      tesseract $CLI_ARGS
+      export PATH="{{ .TESSERACT_PATHS }}:$PATH"
+      export LD_LIBRARY_PATH="{{ .TESSERACT_PATHS }}:$LD_LIBRARY_PATH"
+      tesseract {{ .CLI_ARGS }}
 
   tesseract-data:
     cmds:
       - for: ['eng.traineddata', 'osd.traineddata']
-        task: get-trained-data
-        vars:
-          ITEM: '{{ .ITEM }}'
+        task: get-file
+        vars: { URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}' }
+
+  tesseract-dependencies:
+    internal: true
+    deps: [
+      dependency-zlib-ng,
+      dependency-libpng,
+      dependency-libjpeg,
+      dependency-jbigkit,
+      dependency-leptonica  # Has dependency on 'dependency-libtiff'
+    ]
 
   tesseract-build:
     deps: [init]
     aliases: [build, b]
     cmds:
+      - task: tesseract-dependencies
       - task: remove-unused-tool-binaries
       - task: cmake-build
         vars:
@@ -84,17 +87,6 @@ tasks:
   # Initialization
   #
 
-  build-dependencies:
-    internal: true
-    deps: [
-      dependency-zlib-ng, dependency-libpng,
-      dependency-libjpeg, dependency-jbigkit,
-      dependency-libtiff
-    ]
-    cmds:
-      # Depends on 'dependency-libtiff'
-      - task: dependency-leptonica
-
   remove-unused-tool-binaries:
     internal: true
     status:
@@ -104,8 +96,6 @@ tasks:
 
   init:
     deps: [git-init, dependency-nasm, remove-strawberry-perl]
-    cmds:
-      - task: build-dependencies
 
   #
   # Utilities
@@ -122,20 +112,6 @@ tasks:
         platforms: [windows]
       - cmd: 'mkdir -p {{ .OUTPUT_TARGET_DIR }}'
         platforms: [darwin, linux]
-
-  get-trained-data:
-    vars:
-      ITEM: '{{ default "" .ITEM }}'
-      URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}'
-      TARGET_PATH: '{{ joinPath .TESSDATA_PREFIX .ITEM }}'
-    desc: "Download trained data. {{ .TARGET_NAME }}"
-    status:
-      - test -f "{{ .TARGET }}"
-    cmds:
-      - task: make-dir
-        vars: { TARGET_DIR: '{{ dir .TARGET_PATH }}' }
-      - cmd: |
-          curl -L "{{ .URI }}" --output "{{ fromSlash .TARGET_PATH }}"
 
   test:
     cmds:
@@ -307,6 +283,7 @@ tasks:
           -j {{ if eq OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
 
   dependency-zlib-ng:
+    aliases: [zlib, zlib-ng]
     cmds:
       - task: cmake-build
         vars:
@@ -333,31 +310,26 @@ tasks:
       TARGET_NAME: '{{ .URI | splitList "/" | reverse | first }}'
 
       FILENAME: '{{ coalesce .ITEM .TARGET_NAME }}'
-      DOWNLOAD_DIR: '{{ default "" .DOWNLOAD_DIR }}'
-
-      TARGET_PATH_DIR: '{{ coalesce .DOWNLOAD_DIR .DEP_ARCHIVE_DIR }}'
-      TARGET_PATH: '{{ joinPath .TARGET_PATH_DIR .FILENAME }}'
+      DOWNLOAD_DIR: '{{ .DOWNLOAD_DIR | default .DEP_ARCHIVE_DIR }}'
+      TARGET_PATH: '{{ joinPath .DOWNLOAD_DIR .FILENAME }}'
 
       IS_TAR: '{{ contains ".tar" .FILENAME }}'
       IS_ZIP: '{{ contains ".zip" .FILENAME }}'
-    silent: true
+      IS_OTHER: '{{ not (or (contains ".zip" .FILENAME) (contains ".tar" .FILENAME)) }}'
     status:
+      - test -n "{{ .URI }}"
       - test -f "{{ .TARGET_PATH }}"
-      - tar -tf "{{ .TARGET_PATH }}" || {{ .IS_ZIP }}
-      - unzip -t "{{ .TARGET_PATH }}" || {{ .IS_TAR }}
+      - tar -tf "{{ .TARGET_PATH }}" || {{ not (contains ".tar" .FILENAME) }}
+      - unzip -t "{{ .TARGET_PATH }}" || {{ not (contains ".zip" .FILENAME) }}
     cmds:
+      - cmd: echo "Downloading '{{ .URI }}' to '{{ .TARGET_PATH }}'"
       - task: make-dir
         vars: { TARGET_DIR: '{{ dir .TARGET_PATH }}' }
       - cmd: |
           curl -L "{{ .URI }}" --output "{{ fromSlash .TARGET_PATH }}"
 
-  get-file-test:
-    cmds:
-      - task: get-file
-        vars: { URI: https://download.sourceforge.net/libpng/lpng1643.zip }
-
   dependency-libpng:
-    aliases: [libpng]
+    aliases: [libpng, png]
     vars:
       V_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
       V_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
@@ -406,6 +378,7 @@ tasks:
             -DPNG_SHARED=OFF
 
   dependency-libjpeg:
+    aliases: [libjpeg, jpeg]
     cmds:
       - task: cmake-build
         vars:
@@ -415,6 +388,7 @@ tasks:
             -DENABLE_SHARED=OFF
 
   dependency-jbigkit:
+    aliases: [jbigkit]
     cmds:
       - task: cmake-build
         vars:
@@ -425,6 +399,7 @@ tasks:
             -DCMAKE_WARN_DEPRECATED=OFF
 
   dependency-libtiff:
+    aliases: [libtiff, tiff]
     cmds:
       - task: cmake-build
         vars:
@@ -437,6 +412,7 @@ tasks:
             -Dtiff-docs=OFF
 
   dependency-leptonica:
+    deps: [dependency-libtiff]
     cmds:
       - task: cmake-build
         vars:
