@@ -16,12 +16,6 @@ vars:
 
   ILOC: '{{ joinPath .BUILD_DIR "install" }}'
 
-  # https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html
-  # Semicolon-separated list of directories specifying installation prefixes to be searched by the find_package(),
-  # find_program(), find_library(), find_file(), and find_path() commands. Each command will add appropriate
-  # subdirectories (like bin, lib, or include) as specified in its own documentation.
-  PREFIX_PATH: '{{ .ILOC }};{{ .TASKFILE_DIR }}/external/vcpkg;{{ .TASKFILE_DIR }}'
-
   TESSDATA_PREFIX: '{{ .ILOC }}/share/tessdata'
 
 tasks:
@@ -29,10 +23,6 @@ tasks:
     cmds:
       - task: tesseract
 
-  init:
-    deps: [git-init, dependency-nasm, remove-strawberry-perl]
-    cmds:
-      - task: build-dependencies
 
   build-dependencies:
     internal: true
@@ -43,17 +33,22 @@ tasks:
     ]
 
   remove-unused-tool-binaries:
+    internal: true
+    status:
+      - test ! -d "{{ .ILOC }}/bin/"
     cmds:
       - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
 
-  build:
-    deps: [init]
+  init:
+    deps: [git-init, dependency-nasm, remove-strawberry-perl]
     cmds:
-      - task: remove-unused-tool-binaries
-      - task: tesseract-build
+      - task: build-dependencies
 
   tesseract-build:
+    deps: [init]
+    aliases: [build, b]
     cmds:
+      - task: remove-unused-tool-binaries
       - task: cmake-build
         vars:
           TARGET_NAME: tesseract
@@ -210,10 +205,10 @@ tasks:
   clean:
     cmds:
       - cmd: git add .
-      - cmd: git clean -xfd
       - cmd: rm -rf "{{ fromSlash .BUILD_DIR }}"
       - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
       - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
+      - cmd: git clean -xfd
 
   cmake-build:
     vars:
@@ -237,7 +232,23 @@ tasks:
 
       TARGET_SOURCE_DIR: '{{ default .TARGET_SOURCE_DEFAULT_DIR .TARGET_SOURCE_DIR }}'
       TARGET_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
-      TARGET_PREFIX_PATH: '{{ .PREFIX_PATH }};{{ .TARGET_SOURCE_DIR }};{{ .TARGET_BUILD_DIR }}'
+
+      # https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html
+      # Semicolon-separated list of directories specifying installation prefixes to be searched by the find_package(),
+      # find_program(), find_library(), find_file(), and find_path() commands. Each command will add appropriate
+      # subdirectories (like bin, lib, or include) as specified in its own documentation.
+      TARGET_PREFIX_PATH_LIST: |
+        {{ .ILOC }}
+        {{ joinPath .ILOC "tesseract" }}
+        {{ joinPath .ILOC "leptonica" }}
+        {{ joinPath .ILOC "libtiff" }}
+        {{ .TASKFILE_DIR }}/external/vcpkg
+        {{ .TASKFILE_DIR }}
+        {{ .DEP_BUILD_DIR }}
+        {{ .DEP_SOURCE_DIR }}
+        {{ .TARGET_SOURCE_DIR }}
+        {{ .TARGET_BUILD_DIR }}
+      TARGET_PREFIX_PATH: '{{ splitLines .TARGET_PREFIX_PATH_LIST | uniq | compact | join ";" }}'
 
       INSTALL_PREFIX: '{{ joinPath .ILOC .TARGET_NAME }}'
 
