@@ -6,9 +6,8 @@ vars:
   VERSION:
     sh: git describe --tags HEAD || echo "0.0.1.unknown"
 
-  BUILD_DIR_BASE: '{{ joinPath .TASKFILE_DIR ".build" }}'
-  BUILD_OS: '{{if eq .OS "windows"}}windows{{else}}{{if eq .OS "darwin"}}darwin{{else}}linux{{end}}{{end}}'
-  BUILD_DIR: '{{ joinPath .BUILD_DIR_BASE .BUILD_OS }}'
+  BUILD_OS: '{{if eq OS "windows"}}windows{{else}}{{if eq OS "darwin"}}macos{{else}}linux{{end}}{{end}}'
+  BUILD_DIR: '{{ joinPath .TASKFILE_DIR ".build" .BUILD_OS }}'
 
   DEP_SOURCE_DIR: '{{ joinPath .BUILD_DIR "source" }}'
   DEP_BUILD_DIR: '{{ joinPath .BUILD_DIR "out" }}'
@@ -96,8 +95,33 @@ tasks:
       - for: ['eng.traineddata', 'osd.traineddata']
         task: get-trained-data
         vars:
-          TARGET_DIR: '{{ .TESSDATA_PREFIX }}'
-          URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}'
+          ITEM: '{{ .ITEM }}'
+
+  make-dir:
+    vars:
+      TARGET_DIR: '{{ default "" .TARGET_DIR }}'
+      CLI_ARGS: '{{ default "" .CLI_ARGS }}'
+      TARGET_DIR_NOT_EMPTY: '{{ coalesce .TARGET_DIR .CLI_ARGS .TASKFILE_DIR }}'
+      OUTPUT_TARGET_DIR: '{{ trimAll "''" .TARGET_DIR_NOT_EMPTY }}'
+    cmds:
+      - cmd: 'cmd.exe /D /E:ON /C if not exist "{{ .OUTPUT_TARGET_DIR }}" mkdir "{{ fromSlash .OUTPUT_TARGET_DIR }}"'
+        platforms: [windows]
+      - cmd: 'mkdir -p {{ .OUTPUT_TARGET_DIR }}'
+        platforms: [darwin, linux]
+
+  get-trained-data:
+    vars:
+      ITEM: '{{ default "" .ITEM }}'
+      URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}'
+      TARGET_PATH: '{{ joinPath .TESSDATA_PREFIX .ITEM }}'
+    desc: "Download trained data. {{ .TARGET_NAME }}"
+    status:
+      - test -f "{{ .TARGET }}"
+    cmds:
+      - task: make-dir
+        vars: { TARGET_DIR: '{{ dir .TARGET_PATH }}' }
+      - cmd: |
+          curl -L "{{ .URI }}" --output "{{ fromSlash .TARGET_PATH }}"
 
   test:
     cmds:
@@ -115,21 +139,6 @@ tasks:
     cmds:
       - cmd: scoop install nasm
         platforms: [windows]
-
-  get-trained-data:
-    vars:
-      URI: '{{ default "" .URI }}'
-      TARGET_DIR: '{{ default .TASKFILE_DIR .TARGET_DIR }}'
-      TARGET_NAME: '{{ .URI | splitList "/" | last }}'
-      TARGET: '{{ joinPath .TARGET_DIR .TARGET_NAME }}'
-    desc: "Download trained data. {{ .TARGET_NAME }}"
-    status:
-      - test -f "{{ .TARGET }}"
-    cmds:
-      - cmd: |
-          mkdir -p "{{ .TARGET | dir | fromSlash }}"
-      - cmd: |
-          curl -L "{{ .URI }}" --output "{{ .TARGET | fromSlash }}"
 
   git-init:
     internal: true
@@ -153,6 +162,18 @@ tasks:
       --yes
       strawberryperl
 
+  remove-empty-directory:
+    vars:
+      TARGET_DIR: '{{ default "" .TARGET_DIR }}'
+    silent: true
+    cmds:
+      - cmd: cmd.exe /D /C rmdir "{{ fromSlash .TARGET_DIR }}"
+        platforms: [windows]
+        ignore_error: true
+      - cmd: rmdir "{{ toSlash .TARGET_DIR }}"
+        platforms: [linux, darwin]
+        ignore_error: true
+
   git-clone:
     vars:
       TARGET_DIR: '{{ default "" .TARGET_DIR }}'
@@ -163,12 +184,10 @@ tasks:
     status:
       - test -z "{{ .TARGET_DIR }}"
     cmds:
+      - task: remove-empty-directory
+        vars: { TARGET_DIR: '{{ .TARGET_DIR }}' }
       - cmd: |
-          if rmdir "{{ fromSlash .TARGET_DIR }}" 2> /dev/null; then
-            echo "Removed empty target directory: '{{ fromSlash .TARGET_DIR }}'"
-          fi
-      - cmd: |
-          if [ -n "{{ .URI }}" ] && [ ! -d "{{ fromSlash .TARGET_DIR }}" ]; then
+          if [ -n "{{ .URI }}" ] && [ ! -d "{{ toSlash .TARGET_DIR }}" ]; then
             git clone {{ .GIT_ARGS }} --depth 1 "{{ .URI }}" "{{ fromSlash .TARGET_DIR }}"
           else
             echo "Target directory already checked out: '{{ fromSlash .TARGET_DIR }}'"
@@ -184,13 +203,15 @@ tasks:
     status:
       - test ! -d "{{ .TARGET_DIR }}"
     dir: '{{ .TARGET_DIR }}'
-    cmd: git pull --rebase --autostash || true
+    cmds:
+      - cmd: git pull --rebase --autostash
+        ignore_error: true
 
   clean:
     cmds:
       - cmd: git add .
       - cmd: git clean -xfd
-      - cmd: rm -rf "{{ fromSlash .BUILD_DIR_BASE }}"
+      - cmd: rm -rf "{{ fromSlash .BUILD_DIR }}"
       - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
       - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
 
@@ -223,6 +244,7 @@ tasks:
       TARGET_OUTPUT_TEST_FILE: 'lib/{{ .TARGET_NAME }}.a'
       TARGET_OUTPUT_TEST_PATH: '{{ joinPath .INSTALL_PREFIX .TARGET_OUTPUT_TEST_FILE }}'
     status:
+      - cmake --version
       - test -d "{{ .TARGET_BUILD_DIR }}"
       - test -d "{{ .TARGET_SOURCE_DIR }}"
       - test -d "{{ .INSTALL_PREFIX }}"
@@ -245,7 +267,7 @@ tasks:
           --config "{{ .CONFIG }}"
           --target install
           --verbose
-          -j {{ if eq .OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
+          -j {{ if eq OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
 
   dependency-zlib-ng:
     cmds:
@@ -268,38 +290,45 @@ tasks:
 
   dependency-libpng:
     vars:
-      URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
-      URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
-      URI: '{{ if eq .BUILD_OS "windows" }}{{ .URI_ZIP }}{{ else }}{{ .URI_TAR_XZ }}{{ end }}'
-      TARGET_NAME: '{{ .URI | splitList "/" | reverse | rest | first }}'  # libpng
-      TMP_FILENAME: '{{ .URI | splitList "/" | last }}'  # lpng1643.zip
-      TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
+      V_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
+      V_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
+      V_URI: '{{ if eq OS "windows" }}{{ .V_URI_ZIP }}{{ else }}{{ .V_URI_TAR_XZ }}{{ end }}'
+      V_TARGET_NAME: '{{ .V_URI | splitList "/" | reverse | rest | first }}'  # libpng
+      V_TMP_FILENAME: '{{ .V_URI | splitList "/" | last }}'  # lpng1643.zip
+      V_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .V_TARGET_NAME }}'
+      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .V_TARGET_NAME | fromSlash }}'
+      TARGET_EXTENSION: '{{ .V_TMP_FILENAME | splitList "." | last }}'
+      TARGET_SOURCE_DIR: '{{ fromSlash .V_TARGET_SOURCE_DIR }}'
+      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .V_TMP_FILENAME }}'
+      OUTPUT_ARCHIVE_DIR: '{{ .DEP_ARCHIVE_DIR }}'
     env:
-      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .TARGET_NAME | fromSlash }}'
-      TARGET_EXTENSION: '{{ .TMP_FILENAME | splitList "." | last }}'
-      TARGET_SOURCE_DIR: '{{ fromSlash .TARGET_SOURCE_DIR }}'
-      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .TMP_FILENAME }}'
-      OUTPUT_ARCHIVE_DIR: '{{ joinPath .DEP_ARCHIVE_DIR .TMP_FILENAME | dir | fromSlash }}'
-      URI: '{{ .URI }}'
-    silent: true
+      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .V_TARGET_NAME | fromSlash }}'
+      TARGET_EXTENSION: '{{ .V_TMP_FILENAME | splitList "." | last }}'
+      TARGET_SOURCE_DIR: '{{ fromSlash .V_TARGET_SOURCE_DIR }}'
+      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .V_TMP_FILENAME }}'
+      URI: '{{ .V_URI }}'
     cmds:
+      - task: make-dir
+        vars: { TARGET_DIR: '{{ .OUTPUT_ARCHIVE_DIR }}' }
       - cmd: |
-          if [ ! -e "$OUTPUT_ARCHIVE_FILE_PATH" ]; then
-            echo "Downloading archive: '$URI'"
-            mkdir -p "${OUTPUT_ARCHIVE_DIR}"
-            curl -sSL -o "${OUTPUT_ARCHIVE_FILE_PATH}" "${URI}"
+          if [ ! -e "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" ]; then
+            echo "Downloading archive: '{{ .V_URI }}'"
+            echo "Target file: '{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}'"
+            curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" "${URI}"
           fi
+      - task: make-dir
+        vars: { TARGET_DIR: '{{ .OUTPUT_UNZIP_DIR }}' }
       - cmd: |
-          mkdir -p "$TARGET_SOURCE_DIR" "$OUTPUT_UNZIP_DIR"
           if [ "$TARGET_EXTENSION" == "zip" ]; then
-            unzip -o -qq -d "$OUTPUT_UNZIP_DIR" "$OUTPUT_ARCHIVE_FILE_PATH"
+            unzip -o -qq -d "{{ .OUTPUT_UNZIP_DIR }}" "$OUTPUT_ARCHIVE_FILE_PATH"
           else
-            tar -xf "$OUTPUT_ARCHIVE_FILE_PATH" -C "$OUTPUT_UNZIP_DIR"
+            tar -xf "$OUTPUT_ARCHIVE_FILE_PATH" -C "{{ .OUTPUT_UNZIP_DIR }}"
           fi
+      - task: make-dir
+        vars: { TARGET_DIR: '{{ .TARGET_SOURCE_DIR }}' }
       - cmd: |
-          mkdir -p "$TARGET_SOURCE_DIR"
-          extracted_folder_name="$(ls "$OUTPUT_UNZIP_DIR" | head -1)"
-          cp -Ru "$OUTPUT_UNZIP_DIR/$extracted_folder_name"/* "$TARGET_SOURCE_DIR"
+          extracted_folder_name="$(ls "{{ .OUTPUT_UNZIP_DIR }}" | head -1)"
+          cp -Ru "{{ .OUTPUT_UNZIP_DIR }}/$extracted_folder_name"/* "$TARGET_SOURCE_DIR"
           echo "Copied updated source files from archive to target: '$TARGET_SOURCE_DIR'"
       - task: cmake-build
         vars:
