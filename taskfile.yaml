@@ -305,18 +305,11 @@ tasks:
   get-file:
     required: [URI]
     vars:
-      ITEM: '{{ default "" .ITEM }}'
       URI: '{{ default "" .URI }}'
-      TARGET_NAME: '{{ .URI | splitList "/" | reverse | first }}'
-
-      FILENAME: '{{ coalesce .ITEM .TARGET_NAME }}'
-      DOWNLOAD_DIR: '{{ .DOWNLOAD_DIR | default .DEP_ARCHIVE_DIR }}'
-      TARGET_PATH: '{{ joinPath .DOWNLOAD_DIR .FILENAME }}'
-
-      IS_TAR: '{{ contains ".tar" .FILENAME }}'
-      IS_ZIP: '{{ contains ".zip" .FILENAME }}'
-      IS_OTHER: '{{ not (or (contains ".zip" .FILENAME) (contains ".tar" .FILENAME)) }}'
+      FILENAME: '{{ .URI | splitList "/" | reverse | first }}'
+      TARGET_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .FILENAME }}'
     status:
+      - curl --version
       - test -n "{{ .URI }}"
       - test -f "{{ .TARGET_PATH }}"
       - tar -tf "{{ .TARGET_PATH }}" || {{ not (contains ".tar" .FILENAME) }}
@@ -331,33 +324,25 @@ tasks:
   dependency-libpng:
     aliases: [libpng, png]
     vars:
-      V_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
-      V_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
-      V_URI: '{{ if eq OS "windows" }}{{ .V_URI_ZIP }}{{ else }}{{ .V_URI_TAR_XZ }}{{ end }}'
-      V_TARGET_NAME: '{{ .V_URI | splitList "/" | reverse | rest | first }}'  # libpng
-      V_TMP_FILENAME: '{{ .V_URI | splitList "/" | last }}'  # lpng1643.zip
-      V_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .V_TARGET_NAME }}'
-      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .V_TARGET_NAME | fromSlash }}'
-      TARGET_EXTENSION: '{{ .V_TMP_FILENAME | splitList "." | last }}'
-      TARGET_SOURCE_DIR: '{{ fromSlash .V_TARGET_SOURCE_DIR }}'
-      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .V_TMP_FILENAME }}'
+      PNG_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
+      PNG_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
+      PNG_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
+      PNG_TARGET_NAME: '{{ .PNG_URI | splitList "/" | reverse | rest | first }}'  # libpng
+      PNG_TMP_FILENAME: '{{ .PNG_URI | splitList "/" | last }}'  # lpng1643.zip
+      PNG_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .PNG_TARGET_NAME }}'
+      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .PNG_TARGET_NAME | fromSlash }}'
+      TARGET_EXTENSION: '{{ .PNG_TMP_FILENAME | splitList "." | last }}'
+      TARGET_SOURCE_DIR: '{{ fromSlash .PNG_TARGET_SOURCE_DIR }}'
+      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .PNG_TMP_FILENAME }}'
       OUTPUT_ARCHIVE_DIR: '{{ .DEP_ARCHIVE_DIR }}'
-    env:
-      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .V_TARGET_NAME | fromSlash }}'
-      TARGET_EXTENSION: '{{ .V_TMP_FILENAME | splitList "." | last }}'
-      TARGET_SOURCE_DIR: '{{ fromSlash .V_TARGET_SOURCE_DIR }}'
-      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .V_TMP_FILENAME }}'
-      URI: '{{ .V_URI }}'
     silent: true
     cmds:
       - task: get-file
-        vars: { URI: '{{.V_URI_ZIP}}' }
-      - task: get-file
-        vars: { URI: '{{.V_URI_TAR_XZ}}' }
+        vars: { URI: '{{.PNG_URI}}' }
       - task: make-dir
         vars: { TARGET_DIR: '{{ .OUTPUT_UNZIP_DIR }}' }
       - cmd: |
-          if [ "$TARGET_EXTENSION" == "zip" ]; then
+          if [ "{{ .TARGET_EXTENSION }}" == "zip" ]; then
             unzip -o -qq -d "{{ fromSlash .OUTPUT_UNZIP_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
           else
             tar -xf "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
@@ -368,7 +353,6 @@ tasks:
           extracted_folder_name="$(ls "{{ .OUTPUT_UNZIP_DIR }}" | head -1)"
           cp -Ru "{{ .OUTPUT_UNZIP_DIR }}/$extracted_folder_name"/* "{{ .TARGET_SOURCE_DIR }}"
           echo "Copied updated source files from archive to target: '{{ .TARGET_SOURCE_DIR }}'"
-        msg: Copied updated source files from archive to target
       - task: cmake-build
         vars:
           TARGET_NAME: '{{ .TARGET_NAME }}'
