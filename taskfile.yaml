@@ -82,7 +82,7 @@ tasks:
       - task: cmake-build
         vars:
           TARGET_NAME: tesseract
-          TARGET_SOURCE_DIR: "{{ fromSlash .TASKFILE_DIR }}"
+          TARGET_SOURCE_DIR: "{{ .TASKFILE_DIR }}"
           CONFIGURE_ARGS: >
             -DBUILD_SHARED_LIBS=ON
             -DBUILD_TRAINING_TOOLS=OFF
@@ -244,14 +244,12 @@ tasks:
       USERNAME: '{{ .URI | splitList "/" | reverse | rest | first }}'
       REPO: '{{ .GIT_REPO | splitList "." | first }}'
 
-      INPUT_TARGET_SOURCE_DIR: '{{ default .TASKFILE_DIR .TARGET_SOURCE_DIR }}'
-      DEFAULT_TARGET_NAME: '{{ .INPUT_TARGET_SOURCE_DIR | toSlash | splitList "/" | last | default .REPO }}'
+      URI_NAME: '{{ .REPO }}'
+      SOURCE_NAME: '{{ .TARGET_SOURCE_DIR | default "" | toSlash | splitList "/" | last }}'
+      TARGET_NAME: '{{ coalesce .SOURCE_NAME .URI_NAME  }}'
+      TARGET_SOURCE_DIR_FALLBACK: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
 
-      TARGET_NAME: '{{ .TARGET_NAME | default .DEFAULT_TARGET_NAME  }}'
-
-      TARGET_SOURCE_DEFAULT_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
-
-      TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR | default .TARGET_SOURCE_DEFAULT_DIR }}'
+      TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR | default .TARGET_SOURCE_DIR_FALLBACK }}'
       TARGET_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
 
       # https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html
@@ -287,7 +285,7 @@ tasks:
           echo "INPUT_TARGET_SOURCE_DIR // {{ .INPUT_TARGET_SOURCE_DIR }}"
           echo "DEFAULT_TARGET_NAME // {{ .DEFAULT_TARGET_NAME }}"
           echo "TARGET_NAME // {{ .TARGET_NAME }}"
-          echo "TARGET_SOURCE_DEFAULT_DIR // {{ .TARGET_SOURCE_DEFAULT_DIR }}"
+          echo "TARGET_SOURCE_DIR_FALLBACK // {{ .TARGET_SOURCE_DIR_FALLBACK }}"
           echo "TARGET_SOURCE_DIR // {{ .TARGET_SOURCE_DIR }}"
           echo "TARGET_BUILD_DIR // {{ .TARGET_BUILD_DIR }}"
           echo "TARGET_PREFIX_PATH // {{ .TARGET_PREFIX_PATH }}"
@@ -311,7 +309,6 @@ tasks:
           --target install
           --verbose
           -j {{ if eq OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
-          -DCMAKE_PREFIX_PATH="{{ .TARGET_PREFIX_PATH }}"
 
   dependency-zlib-ng:
     aliases: [zlib, zlib-ng]
@@ -383,10 +380,9 @@ tasks:
       PNG_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
       PNG_TARGET_NAME: '{{ .PNG_URI | splitList "/" | reverse | rest | first }}'  # libpng
       PNG_TMP_FILENAME: '{{ .PNG_URI | splitList "/" | last }}'  # lpng1643.zip
-      PNG_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .PNG_TARGET_NAME }}'
+      TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .PNG_TARGET_NAME }}'
       OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .PNG_TARGET_NAME | fromSlash }}'
       TARGET_EXTENSION: '{{ .PNG_TMP_FILENAME | splitList "." | last }}'
-      TARGET_SOURCE_DIR: '{{ .PNG_TARGET_SOURCE_DIR }}'
       OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .PNG_TMP_FILENAME }}'
       OUTPUT_ARCHIVE_DIR: '{{ .DEP_ARCHIVE_DIR }}'
     silent: true
