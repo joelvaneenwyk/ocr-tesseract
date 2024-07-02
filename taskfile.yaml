@@ -3,11 +3,15 @@
 version: "3"
 
 vars:
-  VERSION:
-    sh: git describe --tags HEAD || echo "0.0.1.unknown"
+  GIT_VERSION:
+    sh: git describe --tags HEAD || true
 
+  VERSION: '{{ .GIT_VERSION | default "0.0.1.unknown" | splitLines | first }}'
   BUILD_OS: '{{if eq OS "windows"}}windows{{else}}{{if eq OS "darwin"}}macos{{else}}linux{{end}}{{end}}'
-  BUILD_DIR: '{{ joinPath .TASKFILE_DIR ".build" .BUILD_OS }}'
+
+  BUILD_DIR_NAME: '{{ .BUILD_DIR_NAME | default ".build" }}'
+  BUILD_DIR_ROOT: '{{ joinPath .TASKFILE_DIR .BUILD_DIR_NAME }}'
+  BUILD_DIR: '{{ joinPath .TASKFILE_DIR .BUILD_DIR_ROOT .BUILD_OS }}'
 
   DEP_SOURCE_DIR: '{{ joinPath .BUILD_DIR "source" }}'
   DEP_BUILD_DIR: '{{ joinPath .BUILD_DIR "out" }}'
@@ -21,46 +25,12 @@ vars:
 tasks:
   default:
     cmds:
+      - cmd: echo "Building Tesseract OCR 'v{{ .VERSION }}'"
       - task: tesseract
 
-
-  build-dependencies:
-    internal: true
-    deps: [
-      dependency-zlib-ng, dependency-libpng,
-      dependency-libjpeg, dependency-jbigkit,
-      dependency-libtiff, dependency-leptonica
-    ]
-
-  remove-unused-tool-binaries:
-    internal: true
-    status:
-      - test ! -d "{{ .ILOC }}/bin/"
-    cmds:
-      - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
-
-  init:
-    deps: [git-init, dependency-nasm, remove-strawberry-perl]
-    cmds:
-      - task: build-dependencies
-
-  tesseract-build:
-    deps: [init]
-    aliases: [build, b]
-    cmds:
-      - task: remove-unused-tool-binaries
-      - task: cmake-build
-        vars:
-          TARGET_NAME: tesseract
-          TARGET_SOURCE_DIR: "{{ fromSlash .TASKFILE_DIR }}"
-          CONFIGURE_ARGS: >
-            -DBUILD_SHARED_LIBS=ON
-            -DBUILD_TRAINING_TOOLS=OFF
-            -DENABLE_LTO=ON
-            -DFAST_FLOAT=ON
-            -DGRAPHICS_DISABLED=ON
-            -DOPENMP_BUILD=OFF
-            -DSW_BUILD=OFF
+  #
+  # Tesseract
+  #
 
   tesseract:
     deps: [tesseract-build, tesseract-data]
@@ -91,6 +61,55 @@ tasks:
         task: get-trained-data
         vars:
           ITEM: '{{ .ITEM }}'
+
+  tesseract-build:
+    deps: [init]
+    aliases: [build, b]
+    cmds:
+      - task: remove-unused-tool-binaries
+      - task: cmake-build
+        vars:
+          TARGET_NAME: tesseract
+          TARGET_SOURCE_DIR: "{{ fromSlash .TASKFILE_DIR }}"
+          CONFIGURE_ARGS: >
+            -DBUILD_SHARED_LIBS=ON
+            -DBUILD_TRAINING_TOOLS=OFF
+            -DENABLE_LTO=ON
+            -DFAST_FLOAT=ON
+            -DGRAPHICS_DISABLED=ON
+            -DOPENMP_BUILD=OFF
+            -DSW_BUILD=OFF
+
+  #
+  # Initialization
+  #
+
+  build-dependencies:
+    internal: true
+    deps: [
+      dependency-zlib-ng, dependency-libpng,
+      dependency-libjpeg, dependency-jbigkit,
+      dependency-libtiff
+    ]
+    cmds:
+      # Depends on 'dependency-libtiff'
+      - task: dependency-leptonica
+
+  remove-unused-tool-binaries:
+    internal: true
+    status:
+      - test ! -d "{{ .ILOC }}/bin/"
+    cmds:
+      - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
+
+  init:
+    deps: [git-init, dependency-nasm, remove-strawberry-perl]
+    cmds:
+      - task: build-dependencies
+
+  #
+  # Utilities
+  #
 
   make-dir:
     vars:
@@ -192,14 +211,21 @@ tasks:
 
   git-pull:
     vars:
-      TARGET_DIR: '{{ default "" .TARGET_DIR }}'
+      INPUT_TARGET_DIR: '{{ default "" .TARGET_DIR }}'
+      TARGET_DIR: '{{ coalesce .TARGET_DIR .TASKFILE_DIR }}'
     preconditions:
       - git --version
     status:
       - test ! -d "{{ .TARGET_DIR }}"
-    dir: '{{ .TARGET_DIR }}'
+      - test ! -d "{{ .TARGET_DIR }}/.git"
+    silent: true
     cmds:
-      - cmd: git pull --rebase --autostash
+      - cmd: >-
+          git -C "{{ .TARGET_DIR }}" pull
+          --rebase --ff-only
+          --strategy-option=theirs
+          --no-recurse-submodules --no-commit --no-verify --no-verify-signatures
+          --verbose
         ignore_error: true
 
   clean:
@@ -299,7 +325,39 @@ tasks:
     cmds:
       - awk '{ sub("\r$", ""); print }' "{{ fromSlash .TARGET_FILE_PATH }}" > "{{ fromSlash .TARGET_FILE_PATH }}"
 
+  get-file:
+    required: [URI]
+    vars:
+      ITEM: '{{ default "" .ITEM }}'
+      URI: '{{ default "" .URI }}'
+      TARGET_NAME: '{{ .URI | splitList "/" | reverse | first }}'
+
+      FILENAME: '{{ coalesce .ITEM .TARGET_NAME }}'
+      DOWNLOAD_DIR: '{{ default "" .DOWNLOAD_DIR }}'
+
+      TARGET_PATH_DIR: '{{ coalesce .DOWNLOAD_DIR .DEP_ARCHIVE_DIR }}'
+      TARGET_PATH: '{{ joinPath .TARGET_PATH_DIR .FILENAME }}'
+
+      IS_TAR: '{{ contains ".tar" .FILENAME }}'
+      IS_ZIP: '{{ contains ".zip" .FILENAME }}'
+    silent: true
+    status:
+      - test -f "{{ .TARGET_PATH }}"
+      - tar -tf "{{ .TARGET_PATH }}" || {{ .IS_ZIP }}
+      - unzip -t "{{ .TARGET_PATH }}" || {{ .IS_TAR }}
+    cmds:
+      - task: make-dir
+        vars: { TARGET_DIR: '{{ dir .TARGET_PATH }}' }
+      - cmd: |
+          curl -L "{{ .URI }}" --output "{{ fromSlash .TARGET_PATH }}"
+
+  get-file-test:
+    cmds:
+      - task: get-file
+        vars: { URI: https://download.sourceforge.net/libpng/lpng1643.zip }
+
   dependency-libpng:
+    aliases: [libpng]
     vars:
       V_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
       V_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
@@ -318,29 +376,27 @@ tasks:
       TARGET_SOURCE_DIR: '{{ fromSlash .V_TARGET_SOURCE_DIR }}'
       OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .V_TMP_FILENAME }}'
       URI: '{{ .V_URI }}'
+    silent: true
     cmds:
-      - task: make-dir
-        vars: { TARGET_DIR: '{{ .OUTPUT_ARCHIVE_DIR }}' }
-      - cmd: |
-          if [ ! -e "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" ]; then
-            echo "Downloading archive: '{{ .V_URI }}'"
-            echo "Target file: '{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}'"
-            curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" "${URI}"
-          fi
+      - task: get-file
+        vars: { URI: '{{.V_URI_ZIP}}' }
+      - task: get-file
+        vars: { URI: '{{.V_URI_TAR_XZ}}' }
       - task: make-dir
         vars: { TARGET_DIR: '{{ .OUTPUT_UNZIP_DIR }}' }
       - cmd: |
           if [ "$TARGET_EXTENSION" == "zip" ]; then
-            unzip -o -qq -d "{{ .OUTPUT_UNZIP_DIR }}" "$OUTPUT_ARCHIVE_FILE_PATH"
+            unzip -o -qq -d "{{ fromSlash .OUTPUT_UNZIP_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
           else
-            tar -xf "$OUTPUT_ARCHIVE_FILE_PATH" -C "{{ .OUTPUT_UNZIP_DIR }}"
+            tar -xf "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
           fi
       - task: make-dir
         vars: { TARGET_DIR: '{{ .TARGET_SOURCE_DIR }}' }
       - cmd: |
           extracted_folder_name="$(ls "{{ .OUTPUT_UNZIP_DIR }}" | head -1)"
-          cp -Ru "{{ .OUTPUT_UNZIP_DIR }}/$extracted_folder_name"/* "$TARGET_SOURCE_DIR"
-          echo "Copied updated source files from archive to target: '$TARGET_SOURCE_DIR'"
+          cp -Ru "{{ .OUTPUT_UNZIP_DIR }}/$extracted_folder_name"/* "{{ .TARGET_SOURCE_DIR }}"
+          echo "Copied updated source files from archive to target: '{{ .TARGET_SOURCE_DIR }}'"
+        msg: Copied updated source files from archive to target
       - task: cmake-build
         vars:
           TARGET_NAME: '{{ .TARGET_NAME }}'
