@@ -94,7 +94,7 @@ tasks:
           URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}'
 
   test:
-    deps: [get-tesseract-data, tesseract]
+    deps: [get-tesseract-data, build-tesseract]
     env:
       TESSDATA_PREFIX: '{{ .TESSDATA_PREFIX }}'
       PATH: '{{ .TESSERACT_BIN_DIR }}:{{ .PATH1 }}'
@@ -134,29 +134,40 @@ tasks:
       GIT_ARGS: '{{ default "" .GIT_ARGS }}'
     preconditions:
       - git --version
+    silent: true
     cmds:
       - cmd: |
           if [ -z "$(ls -A "{{ fromSlash .TARGET_DIR }}")" ]; then
             rm -rf "{{ fromSlash .TARGET_DIR }}"
+          else
+            echo "Target directory is ready: '{{ fromSlash .TARGET_DIR }}'"
           fi
       - cmd: |
           if [ -n "{{ .URI }}" ] && [ ! -d "{{ fromSlash .TARGET_DIR }}" ]; then
             git clone {{ .GIT_ARGS }} --depth 1 "{{ .URI }}" "{{ fromSlash .TARGET_DIR }}"
           else
-            echo "Skipped empty clone."
+            echo "Target directory already checked out: '{{ fromSlash .TARGET_DIR }}'"
           fi
-        silent: true
+      - task: git-pull
+        vars: { TARGET_DIR: "{{ .TARGET_DIR }}" }
 
   git-pull:
     vars:
       TARGET_DIR: '{{ default "" .TARGET_DIR }}'
     preconditions:
       - git --version
-    status:
       - test -d "{{ .TARGET_DIR }}"
     cmds:
       - cmd: |
           git -C "{{ fromSlash .TARGET_DIR }}" pull --rebase --recurse-submodules --autostash
+
+  clean:
+    cmds:
+      - cmd: git add .
+      - cmd: git clean -xfd
+      - cmd: rm -rf "{{ fromSlash .BUILD_DIR_BASE }}"
+      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
+      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
 
   cmake-build:
     vars:
@@ -186,6 +197,7 @@ tasks:
     status:
       - test -d "{{ .TARGET_BUILD_DIR }}"
       - test -d "{{ .TARGET_SOURCE_DIR }}"
+      - test -d "{{ .INSTALL_PREFIX }}"
     dir: '{{ .TARGET_SOURCE_DIR }}'
     cmds:
       - task: git-clone
@@ -216,14 +228,6 @@ tasks:
             -DZLIB_ENABLE_TESTS=OFF
             -DINSTALL_UTILS=OFF
 
-  clean:
-    cmds:
-      - cmd: git add .
-      - cmd: git clean -xfd
-      - cmd: rm -rf "{{ fromSlash .BUILD_DIR_BASE }}"
-      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
-      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
-
   dependency-libpng:
     vars:
       URI: 'https://download.sourceforge.net/libpng/lpng1643.zip'
@@ -233,17 +237,20 @@ tasks:
       OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .FILENAME }}'
       TARGET_SOURCE_DIR_TMP: '{{ joinPath .DEP_SOURCE_DIR .TARGET_SUB_DIRECTORY }}'
       TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
-    status:
-      - test -d "{{ .TARGET_SOURCE_DIR }}"
-      - test -f "{{ .OUTPUT_ARCHIVE_FILE_PATH }}"
+    silent: true
     cmds:
       - cmd: |
           mkdir -p \
             "{{ .OUTPUT_ARCHIVE_FILE_PATH | dir | fromSlash }}" \
             "{{ fromSlash .TARGET_SOURCE_DIR_TMP }}" \
             "{{ fromSlash .TARGET_SOURCE_DIR }}"
-          curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" "{{ .URI }}"
+      - cmd: |
+          if [ ! -e "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" ]; then
+            curl -sSL -o "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" "{{ .URI }}"
+          fi
+      - cmd: |
           unzip -o -qq -d "{{ fromSlash .TARGET_SOURCE_DIR_TMP }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
+      - cmd: |
           cp -rf "{{ joinPath .TARGET_SOURCE_DIR_TMP .TARGET_SUB_DIRECTORY }}"/* "{{ fromSlash .TARGET_SOURCE_DIR }}"
       - task: cmake-build
         vars:
@@ -296,4 +303,3 @@ tasks:
             -DSW_BUILD=OFF
             -DBUILD_PROG=OFF
             -DBUILD_SHARED_LIBS=ON
-
