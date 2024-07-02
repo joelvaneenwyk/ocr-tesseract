@@ -21,16 +21,90 @@ tasks:
     cmds:
       - task: build
 
-  build:
+  init:
+    internal: true
     deps: [git-init, dependency-nasm, remove-strawberry-perl]
     cmds:
-      - task: dependency-zlib-ng
-      - task: dependency-libpng
-      - task: dependency-libjpeg
-      - task: dependency-jbigkit
-      - task: dependency-libtiff
-      - task: dependency-leptonica
-      - task: dependency-tesseract
+      - task: build-dependencies
+
+  build-dependencies:
+    internal: true
+    deps: [
+      dependency-zlib-ng, dependency-libpng,
+      dependency-libjpeg, dependency-jbigkit,
+      dependency-libtiff, dependency-leptonica
+    ]
+
+  remove-unused-tool-binaries:
+    cmds:
+      - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
+
+  build:
+    deps: [init]
+    cmds:
+      - task: remove-unused-tool-binaries
+      - task: build-tesseract
+
+  build-tesseract:
+    internal: true
+    vars:
+      TARGET_NAME: tesseract
+      CONFIG: '{{ default "Release" .CONFIG }}'
+      TARGET_BUILD_DIR: '{{ joinPath .BUILD_DIR .TARGET_NAME }}'
+    cmds:
+      - cmd: >-
+          cmake
+          -B "{{ fromSlash .TARGET_BUILD_DIR }}"
+          -S "{{ fromSlash .TASKFILE_DIR }}"
+          -DCMAKE_BUILD_TYPE="{{ .CONFIG }}"
+          -DCMAKE_PREFIX_PATH="{{ .PREFIX_PATH }}"
+          -DCMAKE_INSTALL_PREFIX="{{ .INSTALL_PREFIX }}"
+          -DBUILD_SHARED_LIBS=ON
+          -DBUILD_TRAINING_TOOLS=OFF
+          -DENABLE_LTO=ON
+          -DFAST_FLOAT=ON
+          -DGRAPHICS_DISABLED=ON
+          -DOPENMP_BUILD=OFF
+          -DSW_BUILD=OFF
+      - cmd: >-
+          cmake
+          --build "{{ fromSlash .TARGET_BUILD_DIR }}"
+          --config "{{ .CONFIG }}"
+          --target install
+      - task: get-tesseract-data
+
+  get-tesseract-info:
+    vars:
+      URI: '{{ default "" .URI }}'
+      TARGET_DIR: '{{ default .TASKFILE_DIR .TARGET_DIR }}'
+      TARGET_NAME: '{{ .URI | splitList "/" | last }}'
+      TARGET: '{{ joinPath .TARGET_DIR .TARGET_NAME }}'
+    desc: "Download training data. {{ .TARGET_NAME }}"
+    status:
+      - test -f "{{ .TARGET }}"
+    cmds:
+      - cmd: |
+          mkdir -p "{{ .TARGET | dir | fromSlash }}"
+      - cmd: |
+          curl -L "{{ .URI }}" --output "{{ .TARGET | fromSlash }}"
+
+  get-tesseract-data:
+    cmds:
+      - for: ['eng.traineddata', 'osd.traineddata']
+        task: get-tesseract-info
+        vars:
+          TARGET_DIR: '{{ .TESSDATA_PREFIX }}'
+          URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}'
+
+  test:
+    deps: [get-tesseract-data, tesseract]
+    env:
+      TESSDATA_PREFIX: '{{ .TESSDATA_PREFIX }}'
+      PATH: '{{ .TESSERACT_BIN_DIR }}:{{ .PATH1 }}'
+    cmds:
+      - cmd: tesseract -v
+      - cmd: tesseract --list-langs
+      - cmd: tesseract test/testing/phototest.tif -
 
   dependency-nasm:
     platforms: [windows]
@@ -217,67 +291,3 @@ tasks:
             -DBUILD_PROG=OFF
             -DBUILD_SHARED_LIBS=ON
 
-  remove-unused-tool-binaries:
-    cmds:
-      - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
-
-  dependency-tesseract:
-    deps: [remove-unused-tool-binaries]
-    vars:
-      TARGET_NAME: tesseract
-      CONFIG: '{{ default "Release" .CONFIG }}'
-      TARGET_BUILD_DIR: '{{ joinPath .BUILD_DIR .TARGET_NAME }}'
-    cmds:
-      - cmd: >-
-          cmake
-          -B "{{ fromSlash .TARGET_BUILD_DIR }}"
-          -S "{{ fromSlash .TASKFILE_DIR }}"
-          -DCMAKE_BUILD_TYPE="{{ .CONFIG }}"
-          -DCMAKE_PREFIX_PATH="{{ .PREFIX_PATH }}"
-          -DCMAKE_INSTALL_PREFIX="{{ .INSTALL_PREFIX }}"
-          -DSW_BUILD=OFF
-          -DBUILD_SHARED_LIBS=ON
-          -DENABLE_LTO=ON
-          -DBUILD_TRAINING_TOOLS=OFF
-          -DFAST_FLOAT=ON
-          -DGRAPHICS_DISABLED=ON
-          -DOPENMP_BUILD=OFF
-      - cmd: >-
-          cmake
-          --build "{{ fromSlash .TARGET_BUILD_DIR }}"
-          --config "{{ .CONFIG }}"
-          --target install
-      - task: get-tesseract-data
-
-  get-tesseract-info:
-    vars:
-      URI: '{{ default "" .URI }}'
-      TARGET_DIR: '{{ default .TASKFILE_DIR .TARGET_DIR }}'
-      TARGET_NAME: '{{ .URI | splitList "/" | last }}'
-      TARGET: '{{ joinPath .TARGET_DIR .TARGET_NAME }}'
-    desc: "Download training data. {{ .TARGET_NAME }}"
-    status:
-      - test -f "{{ .TARGET }}"
-    cmds:
-      - cmd: |
-          mkdir -p "{{ .TARGET | dir | fromSlash }}"
-      - cmd: |
-          curl -L "{{ .URI }}" --output "{{ .TARGET | fromSlash }}"
-
-  get-tesseract-data:
-    cmds:
-      - for: ['eng.traineddata', 'osd.traineddata']
-        task: get-tesseract-info
-        vars:
-          TARGET_DIR: '{{ .TESSDATA_PREFIX }}'
-          URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}'
-
-  test:
-    deps: [get-tesseract-data, tesseract]
-    env:
-      TESSDATA_PREFIX: '{{ .TESSDATA_PREFIX }}'
-      PATH: '{{ .TESSERACT_BIN_DIR }}:{{ .PATH1 }}'
-    cmds:
-      - cmd: tesseract -v
-      - cmd: tesseract --list-langs
-      - cmd: tesseract test/testing/phototest.tif -
