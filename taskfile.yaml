@@ -65,13 +65,12 @@ tasks:
 
   tesseract-dependencies:
     internal: true
-    deps: [
-      dependency-zlib-ng,
-      dependency-libpng,
-      dependency-libjpeg,
-      dependency-jbigkit,
-      dependency-leptonica  # Has dependency on 'dependency-libtiff'
-    ]
+    cmds:
+      - task: dependency-zlib-ng
+      - task: dependency-libpng
+      - task: dependency-libjpeg
+      - task: dependency-jbigkit
+      - task: dependency-leptonica  # Has dependency on 'dependency-libtiff'
 
   tesseract-build:
     deps: [init]
@@ -79,11 +78,11 @@ tasks:
     cmds:
       - task: tesseract-dependencies
       - task: remove-unused-tool-binaries
-      - task:
+      - task: cmake-build
         vars:
-          TARGET_NAME: tesseract
-          TARGET_SOURCE_DIR: "{{ .TASKFILE_DIR }}"
-          CONFIGURE_ARGS: >
+          CM_TARGET_NAME_OVERRIDE: tesseract
+          CM_SOURCE_DIR: "{{ .TASKFILE_DIR }}"
+          CM_CONFIGURE_ARGS: >
             -DBUILD_SHARED_LIBS=ON
             -DBUILD_TRAINING_TOOLS=OFF
             -DENABLE_LTO=ON
@@ -187,38 +186,36 @@ tasks:
 
   git-clone:
     vars:
-      TARGET_DIR: '{{ default "" .TARGET_DIR }}'
-      URI: '{{ default "" .URI }}'
-      GIT_ARGS: '{{ default "" .GIT_ARGS }}'
+      GTC_TARGET_DIR: '{{ default "" .GTC_TARGET_DIR }}'
+      GTC_URI: '{{ default "" .GTC_URI }}'
+      GTC_GIT_ARGS: '{{ default "" .GTC_GIT_ARGS }}'
     preconditions:
       - git --version
     status:
-      - test -z "{{ .TARGET_DIR }}"
+      - test -z "{{ .GTC_TARGET_DIR }}"
     cmds:
       - task: remove-empty-directory
-        vars: { TARGET_DIR_PATH: '{{ .TARGET_DIR }}' }
+        vars: { TARGET_DIR_PATH: '{{ .GTC_TARGET_DIR }}' }
       - cmd: |
-          if [ -n "{{ .URI }}" ] && [ ! -d "{{ toSlash .TARGET_DIR }}" ]; then
-            git clone {{ .GIT_ARGS }} --depth 1 "{{ .URI }}" "{{ fromSlash .TARGET_DIR }}"
+          if [ -n "{{ .GTC_URI }}" ] && [ ! -d "{{ toSlash .GTC_TARGET_DIR }}" ]; then
+            git clone {{ .GTC_GIT_ARGS }} --depth 1 "{{ .GTC_URI }}" "{{ fromSlash .GTC_TARGET_DIR }}"
           else
-            echo "Target directory already checked out: '{{ fromSlash .TARGET_DIR }}'"
+            echo "Target directory already checked out: '{{ fromSlash .GTC_TARGET_DIR }}'"
           fi
-      - task: git-pull
-        vars: { TARGET_DIR: "{{ .TARGET_DIR }}" }
 
   git-pull:
     vars:
-      INPUT_TARGET_DIR: '{{ default "" .TARGET_DIR }}'
-      TARGET_DIR: '{{ coalesce .TARGET_DIR .TASKFILE_DIR }}'
+      GP_INPUT_TARGET_DIR: '{{ default "" .GP_TARGET_DIR }}'
+      GP_TARGET_DIR: '{{ coalesce .GP_TARGET_DIR .TASKFILE_DIR }}'
     preconditions:
       - git --version
     status:
-      - test ! -d "{{ .TARGET_DIR }}"
-      - test ! -d "{{ .TARGET_DIR }}/.git"
+      - test ! -d "{{ .GP_TARGET_DIR }}"
+      - test ! -d "{{ .GP_TARGET_DIR }}/.git"
     silent: true
     cmds:
       - cmd: >-
-          git -C "{{ .TARGET_DIR }}" pull
+          git -C "{{ .GP_TARGET_DIR }}" pull
           --rebase --ff-only
           --strategy-option=theirs
           --no-recurse-submodules --no-commit --no-verify --no-verify-signatures
@@ -235,77 +232,66 @@ tasks:
 
   cmake-build:
     vars:
-      URI: '{{ default "" .URI }}'
-      CONFIG: '{{ default "Release" .CONFIG }}'
-      GIT_ARGS: '{{ default "" .GIT_ARGS }}'
-      CONFIGURE_ARGS: '{{ default "" .CONFIGURE_ARGS }}'
+      CM_URI: '{{ default "" .CM_URI }}'
+      CM_URI_REPO: '{{ .URI | splitList "/" | reverse | first | splitList "." | first }}'
 
-      GIT_REPO: '{{ .URI | splitList "/" | reverse | first }}'
-      USERNAME: '{{ .URI | splitList "/" | reverse | rest | first }}'
-      REPO: '{{ .GIT_REPO | splitList "." | first }}'
+      CM_CONFIG: '{{ default "Release" .CM_CONFIG }}'
+      CM_GIT_ARGS: '{{ default "" .CM_GIT_ARGS }}'
+      CM_CONFIGURE_ARGS: '{{ default "" .CM_CONFIGURE_ARGS }}'
 
-      URI_NAME: '{{ .REPO }}'
-      SOURCE_NAME: '{{ .TARGET_SOURCE_DIR | default "" | toSlash | splitList "/" | last }}'
-      TARGET_NAME: '{{ coalesce .SOURCE_NAME .URI_NAME  }}'
-      TARGET_SOURCE_DIR_FALLBACK: '{{ joinPath .DEP_SOURCE_DIR .TARGET_NAME }}'
+      CM_SOURCE_NAME: '{{ .CM_SOURCE_DIR | default "" | toSlash | splitList "/" | last }}'
+      CM_TMP_TARGET_NAME: '{{ coalesce .CM_TARGET_NAME_OVERRIDE .CM_SOURCE_NAME .CM_URI_REPO  }}'
+      CM_TMP_TARGET_SOURCE_DIR_FALLBACK: '{{ joinPath .DEP_SOURCE_DIR .CM_TMP_TARGET_NAME }}'
 
-      TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR | default .TARGET_SOURCE_DIR_FALLBACK }}'
-      TARGET_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .TARGET_NAME }}'
+      CM_SOURCE_DIR: '{{ .CM_SOURCE_DIR | default .CM_TMP_TARGET_SOURCE_DIR_FALLBACK }}'
+      CM_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .CM_TMP_TARGET_NAME }}'
+
+      CM_INSTALL_PREFIX: '{{ joinPath .ILOC .CM_TMP_TARGET_NAME }}'
+
+      CM_TARGET_OUTPUT_TEST_FILE: '{{ .CM_TMP_TARGET_NAME }}.a'
+      CM_TARGET_OUTPUT_TEST_PATH: '{{ joinPath .CM_INSTALL_PREFIX "lib" .CM_TARGET_OUTPUT_TEST_FILE }}'
 
       # https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html
       # Semicolon-separated list of directories specifying installation prefixes to be searched by the find_package(),
       # find_program(), find_library(), find_file(), and find_path() commands. Each command will add appropriate
       # subdirectories (like bin, lib, or include) as specified in its own documentation.
-      TARGET_PREFIX_PATH_LIST: |
-        {{ .ILOC }}
-        {{ joinPath .ILOC "tesseract" }}
-        {{ joinPath .ILOC "leptonica" }}
-        {{ joinPath .ILOC "libtiff" }}
-        {{ .TASKFILE_DIR }}/external/vcpkg
-        {{ .TASKFILE_DIR }}
-        {{ .DEP_BUILD_DIR }}
-        {{ .DEP_SOURCE_DIR }}
-        {{ .TARGET_SOURCE_DIR }}
-        {{ .TARGET_BUILD_DIR }}
-      TARGET_PREFIX_PATH: '{{ splitLines .TARGET_PREFIX_PATH_LIST | uniq | compact | join ";" }}'
-
-      INSTALL_PREFIX: '{{ joinPath .ILOC .TARGET_NAME }}'
-
-      TARGET_OUTPUT_TEST_FILE: 'lib/{{ .TARGET_NAME }}.a'
-      TARGET_OUTPUT_TEST_PATH: '{{ joinPath .INSTALL_PREFIX .TARGET_OUTPUT_TEST_FILE }}'
+      CM_TMP_TARGET_PREFIX_PATH_LIST: |
+        {{ .DEP_BUILD_DIR | fromSlash }}
+        {{ .DEP_SOURCE_DIR | fromSlash }}
+        {{ .ILOC | fromSlash }}
+        {{ .TASKFILE_DIR | fromSlash }}
+        {{ .CM_BUILD_DIR | fromSlash }}
+        {{ .CM_SOURCE_DIR | fromSlash }}
+        {{ joinPath .ILOC "leptonica" | fromSlash }}
+        {{ joinPath .ILOC "libjpeg-turbo" | fromSlash }}
+        {{ joinPath .ILOC "libpng" | fromSlash }}
+        {{ joinPath .ILOC "libtiff" | fromSlash }}
+        {{ joinPath .ILOC "tesseract" | fromSlash }}
+        {{ joinPath .ILOC "zlib-ng" | fromSlash }}
+        {{ joinPath .TASKFILE_DIR "external/vcpkg" | fromSlash }}
+      CM_TARGET_PREFIX_PATH: '{{ splitLines .CM_TMP_TARGET_PREFIX_PATH_LIST | uniq | compact | join ";" }}'
     status:
       - cmake --version
-      - test -d "{{ .TARGET_BUILD_DIR }}"
-      - test -d "{{ .TARGET_SOURCE_DIR }}"
-      - test -d "{{ .INSTALL_PREFIX }}"
-      - test -f "{{ .TARGET_OUTPUT_TEST_PATH }}"
-    dir: '{{ .TARGET_SOURCE_DIR }}'
+      - test -d "{{ .CM_BUILD_DIR }}"
+      - test -d "{{ .CM_SOURCE_DIR }}"
+      - test -d "{{ .CM_INSTALL_PREFIX }}"
+      - test -f "{{ .CM_TARGET_OUTPUT_TEST_PATH }}"
+    dir: '{{ .CM_SOURCE_DIR }}'
     cmds:
-      - cmd: |
-          echo "INPUT_TARGET_SOURCE_DIR // {{ .INPUT_TARGET_SOURCE_DIR }}"
-          echo "DEFAULT_TARGET_NAME // {{ .DEFAULT_TARGET_NAME }}"
-          echo "TARGET_NAME // {{ .TARGET_NAME }}"
-          echo "TARGET_SOURCE_DIR_FALLBACK // {{ .TARGET_SOURCE_DIR_FALLBACK }}"
-          echo "TARGET_SOURCE_DIR // {{ .TARGET_SOURCE_DIR }}"
-          echo "TARGET_BUILD_DIR // {{ .TARGET_BUILD_DIR }}"
-          echo "TARGET_PREFIX_PATH // {{ .TARGET_PREFIX_PATH }}"
-          echo "INSTALL_PREFIX // {{ .INSTALL_PREFIX }}"
-          echo "TARGET_OUTPUT_TEST_FILE // {{ .TARGET_OUTPUT_TEST_FILE }}"
-          echo "TARGET_OUTPUT_TEST_PATH // {{ .TARGET_OUTPUT_TEST_PATH }}"
       - task: git-clone
-        vars: { TARGET_DIR: "{{ .TARGET_SOURCE_DIR }}", URI: "{{ .URI }}", GIT_ARGS: "{{ .GIT_ARGS }}" }
+        vars: { GTC_TARGET_DIR: "{{ .CM_SOURCE_DIR }}", GTC_URI: "{{ .CM_URI }}", GTC_GIT_ARGS: "{{ .CM_GIT_ARGS }}" }
       - cmd: >-
           cmake
-          -B "{{ fromSlash .TARGET_BUILD_DIR }}"
-          -S "{{ fromSlash .TARGET_SOURCE_DIR }}"
-          -DCMAKE_PREFIX_PATH="{{ .TARGET_PREFIX_PATH }}"
-          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .INSTALL_PREFIX }}"
+          -B "{{ fromSlash .CM_TARGET_BUILD_DIR }}"
+          -S "{{ fromSlash .CM_SOURCE_DIR }}"
+          -DCMAKE_PREFIX_PATH="{{ .CM_TARGET_PREFIX_PATH }}"
+          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .CM_INSTALL_PREFIX }}"
           -DCMAKE_EXECUTE_PROCESS_COMMAND_ECHO="STDOUT"
-          {{ .CONFIGURE_ARGS }}
+          {{ .CM_CONFIGURE_ARGS }}
       - cmd: >-
           cmake
-          --build "{{ fromSlash .TARGET_BUILD_DIR }}"
-          --config "{{ .CONFIG }}"
+          --build "{{ fromSlash .CM_BUILD_DIR }}"
+          --config "{{ .CM_CONFIG }}"
           --target install
           --verbose
           -j {{ if eq OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
@@ -315,20 +301,12 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          URI: "https://github.com/zlib-ng/zlib-ng.git"
-          CONFIGURE_ARGS: >
+          CM_URI: "https://github.com/zlib-ng/zlib-ng.git"
+          CM_CONFIGURE_ARGS: >
             -DBUILD_SHARED_LIBS=OFF
             -DZLIB_COMPAT=ON
             -DZLIB_ENABLE_TESTS=OFF
             -DINSTALL_UTILS=OFF
-
-  normalize-file-ending:
-    vars:
-      TARGET_FILE_PATH: '{{ default "" .TARGET_FILE_PATH }}'
-    preconditions:
-      - awk --version
-    cmds:
-      - awk '{ sub("\r$", ""); print }' "{{ fromSlash .TARGET_FILE_PATH }}" > "{{ fromSlash .TARGET_FILE_PATH }}"
 
   get-file:
     required: [GET_FILE_URI]
@@ -349,61 +327,57 @@ tasks:
       - cmd: echo "Downloaded '{{ .GET_FILE_URI }}' to '{{ .GET_FILE_TARGET_PATH }}'"
 
   copy-source-to-target:
+    required: [CP_SOURCE_DIR, CP_TARGET_DIR]
     vars:
-      CP_SOURCE_DIR: '{{ default .TASKFILE_DIR .CP_SOURCE_DIR }}'
-      CP_TARGET_DIR: '{{ default .TASKFILE_DIR .CP_TARGET_DIR }}'
-      OUTPUT_DIR_CMD: cmd.exe /D /C dir /b /a:d "{{ fromSlash .CP_SOURCE_DIR }}"
-      OUTPUT_DIR_BASH: ls "{{ toSlash .CP_SOURCE_DIR }}"
-      LS: '{{if eq OS "windows"}}{{.OUTPUT_DIR_CMD}}{{else}}{{.OUTPUT_DIR_BASH}}{{end}}'
-      LS_OUTPUT:
-        sh: '{{ .LS }}'
-      OUTPUT_DIR_COMBINED: '{{ .LS_OUTPUT | splitLines | uniq | sortAlpha | first }}'
-      SOURCE_DIR: '{{ joinPath .CP_SOURCE_DIR .OUTPUT_DIR_COMBINED }}'
+      CP_OUTPUT_DIR_CMD: cmd.exe /D /C dir /b /a:d "{{ fromSlash .CP_SOURCE_DIR }}"
+      CP_OUTPUT_DIR_BASH: ls "{{ toSlash .CP_SOURCE_DIR }}"
+      CP_LS_OUTPUT:
+        sh: '{{if eq OS "windows"}}{{.CP_OUTPUT_DIR_CMD}}{{else}}{{.CP_OUTPUT_DIR_BASH}}{{end}}'
+      CP_OUTPUT_DIR_COMBINED: '{{ .CP_LS_OUTPUT | splitLines | uniq | sortAlpha | first }}'
+      CP_SOURCE_DIR: '{{ joinPath .CP_SOURCE_DIR .OUTPUT_DIR_COMBINED }}'
     cmds:
       - task: make-dir
         vars: { MAKE_DIR_TARGET_DIR: '{{ .CP_TARGET_DIR }}' }
       - cmd: |
-          xcopy /E /Y /I "{{ fromSlash .SOURCE_DIR }}" "{{ fromSlash .CP_TARGET_DIR }}"
+          xcopy /E /Y /I "{{ fromSlash .CP_SOURCE_DIR }}" "{{ fromSlash .CP_TARGET_DIR }}"
         platforms: [windows]
       - cmd: |
-          cp -Ru "{{ toSlash .SOURCE_DIR }}"/* "{{ toSlash .CP_TARGET_DIR }}"
+          cp -Ru "{{ toSlash .CP_SOURCE_DIR }}"/* "{{ toSlash .CP_TARGET_DIR }}"
         platforms: [linux, darwin]
       - cmd: |
-          echo "Copied {{ shellQuote .SOURCE_DIR }} to {{ shellQuote .CP_TARGET_DIR }}"
+          echo "Copied {{ shellQuote .CP_SOURCE_DIR }} to {{ shellQuote .CP_TARGET_DIR }}"
 
   cmake-build-archive:
-    required: [CTI_URI]
+    required: [CMA_URI]
     vars:
-      CTI_TMP_FILENAME: '{{ .CTI_URI | splitList "/" | reverse | first }}'
-      CTI_TMP_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .CTI_TMP_FILENAME }}'
+      CMA_TMP_FILENAME: '{{ .CMA_URI | splitList "/" | reverse | first }}'
+      CMA_TMP_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .CMA_TMP_FILENAME }}'
 
-      CTI_TMP_EXTRACTED_SOURCE_DIR: '{{ joinPath .DEP_TEMP_DIR .CTI_TMP_FILENAME }}'
+      CMA_TMP_EXTRACTED_SOURCE_DIR: '{{ joinPath .DEP_TEMP_DIR .CMA_TMP_FILENAME }}'
 
-      # CTI_TMP_TMP_FILENAME: '{{ .CTI_TMP_URI | splitList "/" | last }}'  # lpng1643.zip
-
-      CTI_TMP_TARGET_NAME: '{{ .CTI_URI | splitList "/" | reverse | rest | first }}'  # libpng
-      CTI_TMP_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .CTI_TMP_TARGET_NAME }}'
+      CMA_TMP_TARGET_NAME: '{{ .CMA_URI | splitList "/" | reverse | rest | first }}'  # libpng
+      CMA_TMP_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .CMA_TMP_TARGET_NAME }}'
     cmds:
       - task: get-file
         vars:
-          GET_FILE_URI: '{{.CTI_URI}}'
-      - cmd: echo "{{ .CTI_TMP_ARCHIVE_FILE_PATH }}"
+          GET_FILE_URI: '{{.CMA_URI}}'
+      - cmd: echo "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}"
       - task: make-dir
-        vars: { MAKE_DIR_TARGET_DIR: '{{ .CTI_TMP_EXTRACTED_SOURCE_DIR }}' }
+        vars: { MAKE_DIR_TARGET_DIR: '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}' }
       #- cmd: |
-      #    unzip -o -qq -d "{{ fromSlash .CTI_TMP_EXTRACTED_SOURCE_DIR }}" "{{ fromSlash .CTI_TMP_ARCHIVE_FILE_PATH }}"
+      #    unzip -o -qq -d "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}" "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}"
       - cmd: |
-          tar -xf "{{ fromSlash .CTI_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CTI_TMP_EXTRACTED_SOURCE_DIR }}"
+          tar -xf "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}"
       - task: copy-source-to-target
         vars:
-          CP_SOURCE_DIR: '{{ .CTI_TMP_EXTRACTED_SOURCE_DIR }}'
-          CP_TARGET_DIR: '{{ .CTI_TMP_TARGET_SOURCE_DIR }}'
+          CP_SOURCE_DIR: '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'
+          CP_TARGET_DIR: '{{ .CMA_TMP_TARGET_SOURCE_DIR }}'
       - task: cmake-build
         vars:
-          TARGET_SOURCE_DIR: '{{ .CTI_TMP_TARGET_SOURCE_DIR }}'
-          CONFIGURE_ARGS: >-
-            -DCTI_TMP_TESTS=OFF
-            -DCTI_TMP_SHARED=OFF
+          CM_SOURCE_DIR: '{{ .CMA_TMP_TARGET_SOURCE_DIR }}'
+          CM_CONFIGURE_ARGS: >-
+            -DCMA_TMP_TESTS=OFF
+            -DCMA_TMP_SHARED=OFF
 
   dependency-libpng:
     aliases: [libpng, png]
@@ -414,15 +388,15 @@ tasks:
     cmds:
       - task: cmake-build-archive
         vars:
-          CTI_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
+          CMA_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
 
   dependency-libjpeg:
     aliases: [libjpeg, jpeg]
     cmds:
       - task: cmake-build
         vars:
-          URI: https://github.com/libjpeg-turbo/libjpeg-turbo.git
-          CONFIGURE_ARGS: >-
+          CM_URI: https://github.com/libjpeg-turbo/libjpeg-turbo.git
+          CM_CONFIGURE_ARGS: >-
             -DWITH_TURBOJPEG=OFF
             -DENABLE_SHARED=OFF
 
@@ -431,8 +405,8 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          URI: https://github.com/zdenop/jbigkit.git
-          CONFIGURE_ARGS: >-
+          CM_URI: https://github.com/zdenop/jbigkit.git
+          CM_CONFIGURE_ARGS: >-
             -DBUILD_PROGRAMS=OFF
             -DBUILD_TOOLS=OFF
             -DCMAKE_WARN_DEPRECATED=OFF
@@ -442,9 +416,9 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          URI: https://gitlab.com/libtiff/libtiff.git
-          GIT_ARGS: -c advice.detachedHead=false -b "v4.6.0"
-          CONFIGURE_ARGS: >-
+          CM_URI: https://gitlab.com/libtiff/libtiff.git
+          CM_GIT_ARGS: -c advice.detachedHead=false -b "v4.6.0"
+          CM_CONFIGURE_ARGS: >-
             -Dtiff-tools=OFF
             -Dtiff-tests=OFF
             -Dtiff-contrib=OFF
@@ -455,8 +429,8 @@ tasks:
     cmds:
       - task: cmake-build
         vars:
-          URI: https://github.com/DanBloomberg/leptonica.git
-          CONFIGURE_ARGS: >-
+          CM_URI: https://github.com/DanBloomberg/leptonica.git
+          CM_CONFIGURE_ARGS: >-
             -DSW_BUILD=OFF
             -DBUILD_PROG=OFF
             -DBUILD_SHARED_LIBS=ON
