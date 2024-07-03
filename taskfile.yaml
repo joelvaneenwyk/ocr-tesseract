@@ -116,6 +116,7 @@ tasks:
       - test ! -d "{{ .ILOC }}/bin/"
     cmds:
       - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
+        platforms: [linux, darwin]
 
   #
   # Utilities
@@ -128,7 +129,8 @@ tasks:
       TMP_MKDIR_DIR_NON_NULL: '{{ coalesce .MAKE_DIR_TARGET_DIR .CLI_ARGS .TASKFILE_DIR }}'
       TMP_MKDIR_TARGET: '{{ .TMP_MKDIR_DIR_NON_NULL | trimAll "''" }}'
     cmds:
-      - cmd: 'cmd.exe /D /E:ON /C if not exist "{{ .TMP_MKDIR_TARGET }}" mkdir "{{ fromSlash .TMP_MKDIR_TARGET }}"'
+      - cmd: |
+          cmd.exe /D /E:ON /C if not exist "{{ fromSlash .TMP_MKDIR_TARGET }}" mkdir "{{ fromSlash .TMP_MKDIR_TARGET }}"
         platforms: [windows]
       - cmd: 'mkdir -p {{ .TMP_MKDIR_TARGET }}'
         platforms: [darwin, linux]
@@ -240,15 +242,20 @@ tasks:
   clean:
     cmds:
       - cmd: git add .
+      - cmd: cmd.exe /D /C rmdir /q /s -rf "{{ fromSlash .BUILD_DIR_ROOT }}"
+        platforms: [windows]
       - cmd: rm -rf "{{ fromSlash .BUILD_DIR }}"
+        platforms: [linux, darwin]
       - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
+        platforms: [linux, darwin]
       - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
+        platforms: [linux, darwin]
       - cmd: git clean -xfd
 
   get-file:
     required: [GET_FILE_URI]
     vars:
-      GET_FILE_TMP_FILENAME: '{{ .GET_FILE_URI | splitList "/" | reverse | first }}'
+      GET_FILE_TMP_FILENAME: '{{ .GET_FILE_URI | splitList "/" | last }}'
       GET_FILE_TARGET_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .GET_FILE_TMP_FILENAME }}'
     status:
       - curl --version
@@ -293,7 +300,7 @@ tasks:
   cmake-build:
     vars:
       CM_URI: '{{ default "" .CM_URI }}'
-      CM_URI_REPO: '{{ .CM_URI | splitList "/" | reverse | first | splitList "." | first }}'
+      CM_URI_REPO: '{{ .CM_URI | splitList "/" | last | splitList "." | first }}'
 
       CM_GIT_ARGS: '{{ default "" .CM_GIT_ARGS }}'
       CM_GIT_BRANCH: '{{ default "" .CM_GIT_BRANCH }}'
@@ -366,7 +373,7 @@ tasks:
   cmake-build-archive:
     required: [CMA_URI]
     vars:
-      CMA_TMP_FILENAME: '{{ .CMA_URI | splitList "/" | reverse | first }}'
+      CMA_TMP_FILENAME: '{{ .CMA_URI | splitList "/" | last }}'
       CMA_TMP_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .CMA_TMP_FILENAME }}'
 
       CMA_TMP_EXTRACTED_SOURCE_DIR: '{{ joinPath .DEP_TEMP_DIR .CMA_TMP_FILENAME }}'
