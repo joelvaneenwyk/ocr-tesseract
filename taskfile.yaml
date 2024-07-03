@@ -233,7 +233,7 @@ tasks:
   cmake-build:
     vars:
       CM_URI: '{{ default "" .CM_URI }}'
-      CM_URI_REPO: '{{ .URI | splitList "/" | reverse | first | splitList "." | first }}'
+      CM_URI_REPO: '{{ .CM_URI | splitList "/" | reverse | first | splitList "." | first }}'
 
       CM_CONFIG: '{{ default "Release" .CM_CONFIG }}'
       CM_GIT_ARGS: '{{ default "" .CM_GIT_ARGS }}'
@@ -282,7 +282,7 @@ tasks:
         vars: { GTC_TARGET_DIR: "{{ .CM_SOURCE_DIR }}", GTC_URI: "{{ .CM_URI }}", GTC_GIT_ARGS: "{{ .CM_GIT_ARGS }}" }
       - cmd: >-
           cmake
-          -B "{{ fromSlash .CM_TARGET_BUILD_DIR }}"
+          -B "{{ fromSlash .CM_BUILD_DIR }}"
           -S "{{ fromSlash .CM_SOURCE_DIR }}"
           -DCMAKE_PREFIX_PATH="{{ .CM_TARGET_PREFIX_PATH }}"
           -DCMAKE_INSTALL_PREFIX="{{ fromSlash .CM_INSTALL_PREFIX }}"
@@ -334,7 +334,7 @@ tasks:
       CP_LS_OUTPUT:
         sh: '{{if eq OS "windows"}}{{.CP_OUTPUT_DIR_CMD}}{{else}}{{.CP_OUTPUT_DIR_BASH}}{{end}}'
       CP_OUTPUT_DIR_COMBINED: '{{ .CP_LS_OUTPUT | splitLines | uniq | sortAlpha | first }}'
-      CP_SOURCE_DIR: '{{ joinPath .CP_SOURCE_DIR .OUTPUT_DIR_COMBINED }}'
+      CP_SOURCE_DIR: '{{ joinPath .CP_SOURCE_DIR .CP_OUTPUT_DIR_COMBINED }}'
     cmds:
       - task: make-dir
         vars: { MAKE_DIR_TARGET_DIR: '{{ .CP_TARGET_DIR }}' }
