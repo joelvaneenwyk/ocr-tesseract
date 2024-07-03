@@ -220,7 +220,6 @@ tasks:
     preconditions:
       - git --version
     status:
-      - test ! -d "{{ .GP_TARGET_DIR }}"
       - test ! -d "{{ .GP_TARGET_DIR }}/.git"
     silent: true
     cmds:
@@ -355,7 +354,6 @@ tasks:
           -S "{{ fromSlash .CM_SOURCE_DIR }}"
           -DCMAKE_INSTALL_PREFIX="{{ fromSlash .CM_ILOC_INSTALL_PREFIX }}"
           -DCMAKE_PREFIX_PATH="{{ fromSlash .CM_ILOC_INSTALL_PREFIX }}"
-          -DCMAKE_EXECUTE_PROCESS_COMMAND_ECHO="STDOUT"
           {{ .CM_CONFIGURE_ARGS }}
       - cmd: >-
           cmake
