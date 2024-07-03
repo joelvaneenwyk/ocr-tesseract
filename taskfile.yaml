@@ -177,23 +177,41 @@ tasks:
       - cmd: git submodule update --recursive --checkout --init
 
   git-clone:
+    required: [GTC_TARGET_DIR, GTC_URI]
     vars:
       GTC_TARGET_DIR: '{{ default "" .GTC_TARGET_DIR }}'
       GTC_URI: '{{ default "" .GTC_URI }}'
-      GTC_GIT_ARGS: '{{ default "" .GTC_GIT_ARGS }}'
+      GTC_GIT_ARGS: '{{ default .CLI_ARGS .GTC_GIT_ARGS }}'
+      GTC_GIT_BRANCH: '{{ default "" .GTC_GIT_BRANCH }}'
+
+      GTC_GEN_BRANCH_ARGS: -b "{{.GTC_GIT_BRANCH}}"
+      GTC_GEN_CLONE_ARGS: >-
+        --depth 1
+        {{eq .GTC_GIT_BRANCH "" | ternary "" .GTC_GEN_BRANCH_ARGS}}
+        {{.GTC_GIT_ARGS}}
     preconditions:
       - git --version
-    status:
-      - test -z "{{ .GTC_TARGET_DIR }}"
     cmds:
+      - cmd: echo "Cloning '{{.GTC_GEN_CLONE_ARGS}}'"
       - task: remove-empty-directory
         vars: { TARGET_DIR_PATH: '{{ .GTC_TARGET_DIR }}' }
       - cmd: |
           if [ -n "{{ .GTC_URI }}" ] && [ ! -d "{{ toSlash .GTC_TARGET_DIR }}" ]; then
-            git clone {{ .GTC_GIT_ARGS }} --depth 1 "{{ .GTC_URI }}" "{{ fromSlash .GTC_TARGET_DIR }}"
+            git clone {{ .GTC_GEN_CLONE_ARGS }} \
+              "{{ .GTC_URI }}" \
+              "{{ fromSlash .GTC_TARGET_DIR }}"
           else
             echo "Target directory already checked out: '{{ fromSlash .GTC_TARGET_DIR }}'"
           fi
+
+  git-clone-test:
+    cmds:
+      - task: git-clone
+        vars:
+          GTC_TARGET_DIR: '{{ joinPath .BUILD_DIR "git-clone" }}'
+          GTC_URI: 'https://gitlab.com/libtiff/libtiff.git'
+          GTC_GIT_BRANCH: v4.6.0
+          GTC_GIT_ARGS: -c advice.detachedHead=false
 
   git-pull:
     vars:
@@ -278,8 +296,10 @@ tasks:
       CM_URI: '{{ default "" .CM_URI }}'
       CM_URI_REPO: '{{ .CM_URI | splitList "/" | reverse | first | splitList "." | first }}'
 
-      CM_CONFIG: '{{ default "Release" .CM_CONFIG }}'
       CM_GIT_ARGS: '{{ default "" .CM_GIT_ARGS }}'
+      CM_GIT_BRANCH: '{{ default "" .CM_GIT_BRANCH }}'
+
+      CM_CONFIG: '{{ default "Release" .CM_CONFIG }}'
       CM_CONFIGURE_ARGS: '{{ default "" .CM_CONFIGURE_ARGS }}'
 
       CM_SOURCE_NAME: '{{ .CM_SOURCE_DIR | default "" | toSlash | splitList "/" | last }}'
@@ -313,6 +333,8 @@ tasks:
         {{ joinPath .ILOC "zlib-ng" | fromSlash }}
         {{ joinPath .TASKFILE_DIR "external/vcpkg" | fromSlash }}
       CM_PREFIX_PATH: '{{ splitLines .CM_PREFIX_PATH_LIST | uniq | compact | join ";" }}'
+
+      CM_ILOC_INSTALL_PREFIX: '{{ .ILOC }}'
     status:
       - cmake --version
       - test -d "{{ .CM_BUILD_DIR }}"
@@ -322,13 +344,17 @@ tasks:
     dir: '{{ .CM_SOURCE_DIR }}'
     cmds:
       - task: git-clone
-        vars: { GTC_TARGET_DIR: "{{ .CM_SOURCE_DIR }}", GTC_URI: "{{ .CM_URI }}", GTC_GIT_ARGS: "{{ .CM_GIT_ARGS }}" }
+        vars:
+          GTC_TARGET_DIR: "{{ .CM_SOURCE_DIR }}"
+          GTC_URI: "{{ .CM_URI }}"
+          GTC_GIT_ARGS: "{{ .CM_GIT_ARGS }}"
+          GTC_GIT_BRANCH: "{{ .CM_GIT_BRANCH }}"
       - cmd: >-
           cmake
           -B "{{ fromSlash .CM_BUILD_DIR }}"
           -S "{{ fromSlash .CM_SOURCE_DIR }}"
-          -DCMAKE_PREFIX_PATH="{{ fromSlash .CM_PREFIX_PATH }}"
-          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .CM_INSTALL_PREFIX }}"
+          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .CM_ILOC_INSTALL_PREFIX }}"
+          -DCMAKE_PREFIX_PATH="{{ fromSlash .CM_ILOC_INSTALL_PREFIX }}"
           -DCMAKE_EXECUTE_PROCESS_COMMAND_ECHO="STDOUT"
           {{ .CM_CONFIGURE_ARGS }}
       - cmd: >-
@@ -441,7 +467,9 @@ tasks:
       - task: cmake-build
         vars:
           CM_URI: https://gitlab.com/libtiff/libtiff.git
-          CM_GIT_ARGS: -c advice.detachedHead=false -b "v4.6.0"
+          CM_GIT_ARGS: >-
+            -c advice.detachedHead=false
+          CM_GIT_BRANCH: v4.6.0
           CM_CONFIGURE_ARGS: >-
             -Dtiff-tools=OFF
             -Dtiff-tests=OFF
