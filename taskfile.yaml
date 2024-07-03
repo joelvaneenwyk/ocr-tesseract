@@ -65,18 +65,33 @@ tasks:
 
   tesseract-dependencies:
     internal: true
+    deps: [git-submodule-update]
+    # We are intentionally executing these tasks serially to avoid errors that occur
+    # when installing multiple packages at the same time.
     cmds:
+      - task: dependency-nasm
+      - task: dependency-unzip
+      # We are intentionally executing these tasks serially to avoid errors that occur
+      # when installing multiple packages at the same time.
+      - task: dependency-nasm
+      - task: dependency-unzip
+      # Remove conflicting libraries
+      - task: remove-strawberry-perl
+      # Libraries built in same order as ".github/workflows/cmake-win64.yml"
       - task: dependency-zlib-ng
       - task: dependency-libpng
       - task: dependency-libjpeg
       - task: dependency-jbigkit
-      - task: dependency-leptonica  # Has dependency on 'dependency-libtiff'
+      - task: dependency-libtiff
+      # Has dependency on 'dependency-libtiff'
+      - task: dependency-leptonica
 
   tesseract-build:
-    deps: [init]
+    deps: [tesseract-dependencies]
     aliases: [build, b]
     cmds:
-      - task: tesseract-dependencies
+      # Remove any locally installed tools that aren't needed
+      # before we build tesseract.
       - task: remove-unused-tool-binaries
       - task: cmake-build
         vars:
@@ -102,15 +117,6 @@ tasks:
     cmds:
       - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
 
-  init:
-    # We are intentionally executing these tasks serially to avoid errors that occur
-    # when installing multiple packages at the same time.
-    cmds:
-      - task: git-init
-      - task: dependency-nasm
-      - task: dependency-unzip
-      - task: remove-strawberry-perl
-
   #
   # Utilities
   #
@@ -135,27 +141,6 @@ tasks:
         vars: { TESSERACT_CLI_ARGS: --list-langs }
       - task: tesseract
         vars: { TESSERACT_CLI_ARGS: test/testing/phototest.tif - }
-
-  dependency-nasm:
-    platforms: [windows]
-    status:
-      - nasm --version
-    cmds:
-      - cmd: scoop install nasm
-
-  dependency-unzip:
-    platforms: [windows]
-    status:
-      - unzip -v
-    cmds:
-      - cmd: scoop install unzip
-
-  git-init:
-    internal: true
-    status:
-      - test -d "{{ .TASKFILE_DIR }}/test/.gitignore"
-    cmds:
-      - cmd: git submodule update --recursive --checkout --init
 
   remove-strawberry-perl:
     platforms: [windows]
@@ -183,6 +168,13 @@ tasks:
       - cmd: rmdir "{{ toSlash .TARGET_DIR_TO_REMOVE }}"
         platforms: [linux, darwin]
         ignore_error: true
+
+  git-submodule-update:
+    internal: true
+    status:
+      - test -d "{{ .TASKFILE_DIR }}/test/.gitignore"
+    cmds:
+      - cmd: git submodule update --recursive --checkout --init
 
   git-clone:
     vars:
@@ -222,6 +214,12 @@ tasks:
           --verbose
         ignore_error: true
 
+  ##
+  ########################################
+  ## Utilities
+  ########################################
+  ##
+
   clean:
     cmds:
       - cmd: git add .
@@ -229,84 +227,6 @@ tasks:
       - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
       - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
       - cmd: git clean -xfd
-
-  cmake-build:
-    vars:
-      CM_URI: '{{ default "" .CM_URI }}'
-      CM_URI_REPO: '{{ .CM_URI | splitList "/" | reverse | first | splitList "." | first }}'
-
-      CM_CONFIG: '{{ default "Release" .CM_CONFIG }}'
-      CM_GIT_ARGS: '{{ default "" .CM_GIT_ARGS }}'
-      CM_CONFIGURE_ARGS: '{{ default "" .CM_CONFIGURE_ARGS }}'
-
-      CM_SOURCE_NAME: '{{ .CM_SOURCE_DIR | default "" | toSlash | splitList "/" | last }}'
-      CM_TMP_TARGET_NAME: '{{ coalesce .CM_TARGET_NAME_OVERRIDE .CM_SOURCE_NAME .CM_URI_REPO  }}'
-      CM_TMP_TARGET_SOURCE_DIR_FALLBACK: '{{ joinPath .DEP_SOURCE_DIR .CM_TMP_TARGET_NAME }}'
-
-      CM_SOURCE_DIR: '{{ .CM_SOURCE_DIR | default .CM_TMP_TARGET_SOURCE_DIR_FALLBACK }}'
-      CM_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .CM_TMP_TARGET_NAME }}'
-
-      CM_INSTALL_PREFIX: '{{ joinPath .ILOC .CM_TMP_TARGET_NAME }}'
-
-      CM_TARGET_OUTPUT_TEST_FILE: '{{ .CM_TMP_TARGET_NAME }}.a'
-      CM_TARGET_OUTPUT_TEST_PATH: '{{ joinPath .CM_INSTALL_PREFIX "lib" .CM_TARGET_OUTPUT_TEST_FILE }}'
-
-      # https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html
-      # Semicolon-separated list of directories specifying installation prefixes to be searched by the find_package(),
-      # find_program(), find_library(), find_file(), and find_path() commands. Each command will add appropriate
-      # subdirectories (like bin, lib, or include) as specified in its own documentation.
-      CM_TMP_TARGET_PREFIX_PATH_LIST: |
-        {{ .DEP_BUILD_DIR | fromSlash }}
-        {{ .DEP_SOURCE_DIR | fromSlash }}
-        {{ .ILOC | fromSlash }}
-        {{ .TASKFILE_DIR | fromSlash }}
-        {{ .CM_BUILD_DIR | fromSlash }}
-        {{ .CM_SOURCE_DIR | fromSlash }}
-        {{ joinPath .ILOC "leptonica" | fromSlash }}
-        {{ joinPath .ILOC "libjpeg-turbo" | fromSlash }}
-        {{ joinPath .ILOC "libpng" | fromSlash }}
-        {{ joinPath .ILOC "libtiff" | fromSlash }}
-        {{ joinPath .ILOC "tesseract" | fromSlash }}
-        {{ joinPath .ILOC "zlib-ng" | fromSlash }}
-        {{ joinPath .TASKFILE_DIR "external/vcpkg" | fromSlash }}
-      CM_TARGET_PREFIX_PATH: '{{ splitLines .CM_TMP_TARGET_PREFIX_PATH_LIST | uniq | compact | join ";" }}'
-    status:
-      - cmake --version
-      - test -d "{{ .CM_BUILD_DIR }}"
-      - test -d "{{ .CM_SOURCE_DIR }}"
-      - test -d "{{ .CM_INSTALL_PREFIX }}"
-      - test -f "{{ .CM_TARGET_OUTPUT_TEST_PATH }}"
-    dir: '{{ .CM_SOURCE_DIR }}'
-    cmds:
-      - task: git-clone
-        vars: { GTC_TARGET_DIR: "{{ .CM_SOURCE_DIR }}", GTC_URI: "{{ .CM_URI }}", GTC_GIT_ARGS: "{{ .CM_GIT_ARGS }}" }
-      - cmd: >-
-          cmake
-          -B "{{ fromSlash .CM_BUILD_DIR }}"
-          -S "{{ fromSlash .CM_SOURCE_DIR }}"
-          -DCMAKE_PREFIX_PATH="{{ .CM_TARGET_PREFIX_PATH }}"
-          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .CM_INSTALL_PREFIX }}"
-          -DCMAKE_EXECUTE_PROCESS_COMMAND_ECHO="STDOUT"
-          {{ .CM_CONFIGURE_ARGS }}
-      - cmd: >-
-          cmake
-          --build "{{ fromSlash .CM_BUILD_DIR }}"
-          --config "{{ .CM_CONFIG }}"
-          --target install
-          --verbose
-          -j {{ if eq OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
-
-  dependency-zlib-ng:
-    aliases: [zlib, zlib-ng]
-    cmds:
-      - task: cmake-build
-        vars:
-          CM_URI: "https://github.com/zlib-ng/zlib-ng.git"
-          CM_CONFIGURE_ARGS: >
-            -DBUILD_SHARED_LIBS=OFF
-            -DZLIB_COMPAT=ON
-            -DZLIB_ENABLE_TESTS=OFF
-            -DINSTALL_UTILS=OFF
 
   get-file:
     required: [GET_FILE_URI]
@@ -347,6 +267,78 @@ tasks:
       - cmd: |
           echo "Copied {{ shellQuote .CP_SOURCE_DIR }} to {{ shellQuote .CP_TARGET_DIR }}"
 
+  ##
+  ########################################
+  ## CMake
+  ########################################
+  ##
+
+  cmake-build:
+    vars:
+      CM_URI: '{{ default "" .CM_URI }}'
+      CM_URI_REPO: '{{ .CM_URI | splitList "/" | reverse | first | splitList "." | first }}'
+
+      CM_CONFIG: '{{ default "Release" .CM_CONFIG }}'
+      CM_GIT_ARGS: '{{ default "" .CM_GIT_ARGS }}'
+      CM_CONFIGURE_ARGS: '{{ default "" .CM_CONFIGURE_ARGS }}'
+
+      CM_SOURCE_NAME: '{{ .CM_SOURCE_DIR | default "" | toSlash | splitList "/" | last }}'
+      CM_TMP_TARGET_NAME: '{{ coalesce .CM_TARGET_NAME_OVERRIDE .CM_SOURCE_NAME .CM_URI_REPO  }}'
+      CM_TMP_TARGET_SOURCE_DIR_FALLBACK: '{{ joinPath .DEP_SOURCE_DIR .CM_TMP_TARGET_NAME }}'
+
+      CM_SOURCE_DIR: '{{ .CM_SOURCE_DIR | default .CM_TMP_TARGET_SOURCE_DIR_FALLBACK }}'
+      CM_BUILD_DIR: '{{ joinPath .DEP_BUILD_DIR .CM_TMP_TARGET_NAME }}'
+
+      CM_INSTALL_PREFIX: '{{ joinPath .ILOC .CM_TMP_TARGET_NAME }}'
+
+      CM_TARGET_OUTPUT_TEST_FILE: '{{ .CM_TMP_TARGET_NAME }}.a'
+      CM_TARGET_OUTPUT_TEST_PATH: '{{ joinPath .CM_INSTALL_PREFIX "lib" .CM_TARGET_OUTPUT_TEST_FILE }}'
+
+      # https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html
+      # Semicolon-separated list of directories specifying installation prefixes to be searched by the find_package(),
+      # find_program(), find_library(), find_file(), and find_path() commands. Each command will add appropriate
+      # subdirectories (like bin, lib, or include) as specified in its own documentation.
+      CM_PREFIX_PATH_LIST: |
+        {{ .DEP_BUILD_DIR | fromSlash }}
+        {{ .DEP_SOURCE_DIR | fromSlash }}
+        {{ .ILOC | fromSlash }}
+        {{ .TASKFILE_DIR | fromSlash }}
+        {{ .CM_BUILD_DIR | fromSlash }}
+        {{ .CM_SOURCE_DIR | fromSlash }}
+        {{ joinPath .ILOC "leptonica" | fromSlash }}
+        {{ joinPath .ILOC "libjpeg-turbo" | fromSlash }}
+        {{ joinPath .ILOC "libpng" | fromSlash }}
+        {{ joinPath .ILOC "libtiff" | fromSlash }}
+        {{ joinPath .ILOC "tesseract" | fromSlash }}
+        {{ joinPath .ILOC "zlib-ng" | fromSlash }}
+        {{ joinPath .TASKFILE_DIR "external/vcpkg" | fromSlash }}
+      CM_PREFIX_PATH: '{{ splitLines .CM_PREFIX_PATH_LIST | uniq | compact | join ";" }}'
+    status:
+      - cmake --version
+      - test -d "{{ .CM_BUILD_DIR }}"
+      - test -d "{{ .CM_SOURCE_DIR }}"
+      - test -d "{{ .CM_INSTALL_PREFIX }}"
+      - test -f "{{ .CM_TARGET_OUTPUT_TEST_PATH }}"
+    dir: '{{ .CM_SOURCE_DIR }}'
+    cmds:
+      - task: git-clone
+        vars: { GTC_TARGET_DIR: "{{ .CM_SOURCE_DIR }}", GTC_URI: "{{ .CM_URI }}", GTC_GIT_ARGS: "{{ .CM_GIT_ARGS }}" }
+      - cmd: >-
+          cmake
+          -B "{{ fromSlash .CM_BUILD_DIR }}"
+          -S "{{ fromSlash .CM_SOURCE_DIR }}"
+          -DCMAKE_PREFIX_PATH="{{ fromSlash .CM_PREFIX_PATH }}"
+          -DCMAKE_INSTALL_PREFIX="{{ fromSlash .CM_INSTALL_PREFIX }}"
+          -DCMAKE_EXECUTE_PROCESS_COMMAND_ECHO="STDOUT"
+          {{ .CM_CONFIGURE_ARGS }}
+      - cmd: >-
+          cmake
+          --build "{{ fromSlash .CM_BUILD_DIR }}"
+          --config "{{ .CM_CONFIG }}"
+          --target install
+          --verbose
+          -j {{ if eq OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
+
   cmake-build-archive:
     required: [CMA_URI]
     vars:
@@ -378,6 +370,38 @@ tasks:
           CM_CONFIGURE_ARGS: >-
             -DCMA_TMP_TESTS=OFF
             -DCMA_TMP_SHARED=OFF
+
+  ##
+  ########################################
+  ## Dependencies
+  ########################################
+  ##
+
+  dependency-nasm:
+    platforms: [windows]
+    status:
+      - nasm --version
+    cmds:
+      - cmd: scoop install nasm
+
+  dependency-unzip:
+    platforms: [windows]
+    status:
+      - unzip -v
+    cmds:
+      - cmd: scoop install unzip
+
+  dependency-zlib-ng:
+    aliases: [zlib, zlib-ng]
+    cmds:
+      - task: cmake-build
+        vars:
+          CM_URI: "https://github.com/zlib-ng/zlib-ng.git"
+          CM_CONFIGURE_ARGS: >
+            -DBUILD_SHARED_LIBS=OFF
+            -DZLIB_COMPAT=ON
+            -DZLIB_ENABLE_TESTS=OFF
+            -DINSTALL_UTILS=OFF
 
   dependency-libpng:
     aliases: [libpng, png]
@@ -425,7 +449,6 @@ tasks:
             -Dtiff-docs=OFF
 
   dependency-leptonica:
-    deps: [dependency-libtiff]
     cmds:
       - task: cmake-build
         vars:
