@@ -44,7 +44,7 @@ tasks:
   tesseract:
     deps: [tesseract-build, tesseract-data]
     vars:
-      CLI_ARGS: '{{ default "--version" .CLI_ARGS }}'
+      TESSERACT_CLI_ARGS: '{{ default "--version" .CLI_ARGS }}'
       TESSERACT_PATH_ARRAY: |
         {{ joinPath .ILOC "tesseract" "bin" }}
         {{ joinPath .ILOC "tesseract" "lib" }}
@@ -55,13 +55,13 @@ tasks:
     cmd: |
       export PATH="{{ .TESSERACT_PATHS }}:$PATH"
       export LD_LIBRARY_PATH="{{ .TESSERACT_PATHS }}:$LD_LIBRARY_PATH"
-      tesseract {{ .CLI_ARGS }}
+      tesseract {{ .TESSERACT_CLI_ARGS }}
 
   tesseract-data:
     cmds:
       - for: ['eng.traineddata', 'osd.traineddata']
         task: get-file
-        vars: { URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}' }
+        vars: { GET_FILE_URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}' }
 
   tesseract-dependencies:
     internal: true
@@ -79,7 +79,7 @@ tasks:
     cmds:
       - task: tesseract-dependencies
       - task: remove-unused-tool-binaries
-      - task: cmake-build
+      - task:
         vars:
           TARGET_NAME: tesseract
           TARGET_SOURCE_DIR: "{{ .TASKFILE_DIR }}"
@@ -117,25 +117,25 @@ tasks:
   #
 
   make-dir:
+    required: [MAKE_DIR_TARGET_DIR]
     vars:
-      TARGET_DIR: '{{ default "" .TARGET_DIR }}'
-      CLI_ARGS: '{{ default "" .CLI_ARGS }}'
-      TARGET_DIR_NOT_EMPTY: '{{ coalesce .TARGET_DIR .CLI_ARGS .TASKFILE_DIR }}'
-      OUTPUT_TARGET_DIR: '{{ trimAll "''" .TARGET_DIR_NOT_EMPTY }}'
+      MAKE_DIR_TARGET_DIR: '{{ default "" .MAKE_DIR_TARGET_DIR }}'
+      TMP_MKDIR_DIR_NON_NULL: '{{ coalesce .MAKE_DIR_TARGET_DIR .CLI_ARGS .TASKFILE_DIR }}'
+      TMP_MKDIR_TARGET: '{{ .TMP_MKDIR_DIR_NON_NULL | trimAll "''" }}'
     cmds:
-      - cmd: 'cmd.exe /D /E:ON /C if not exist "{{ .OUTPUT_TARGET_DIR }}" mkdir "{{ fromSlash .OUTPUT_TARGET_DIR }}"'
+      - cmd: 'cmd.exe /D /E:ON /C if not exist "{{ .TMP_MKDIR_TARGET }}" mkdir "{{ fromSlash .TMP_MKDIR_TARGET }}"'
         platforms: [windows]
-      - cmd: 'mkdir -p {{ .OUTPUT_TARGET_DIR }}'
+      - cmd: 'mkdir -p {{ .TMP_MKDIR_TARGET }}'
         platforms: [darwin, linux]
 
   test:
     cmds:
       - task: tesseract
-        vars: { CLI_ARGS: -v }
+        vars: { TESSERACT_CLI_ARGS: -v }
       - task: tesseract
-        vars: { CLI_ARGS: --list-langs }
+        vars: { TESSERACT_CLI_ARGS: --list-langs }
       - task: tesseract
-        vars: { CLI_ARGS: test/testing/phototest.tif - }
+        vars: { TESSERACT_CLI_ARGS: test/testing/phototest.tif - }
 
   dependency-nasm:
     platforms: [windows]
@@ -331,23 +331,22 @@ tasks:
       - awk '{ sub("\r$", ""); print }' "{{ fromSlash .TARGET_FILE_PATH }}" > "{{ fromSlash .TARGET_FILE_PATH }}"
 
   get-file:
-    required: [URI]
+    required: [GET_FILE_URI]
     vars:
-      URI: '{{ default "" .URI }}'
-      FILENAME: '{{ .URI | splitList "/" | reverse | first }}'
-      TARGET_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .FILENAME }}'
+      GET_FILE_TMP_FILENAME: '{{ .GET_FILE_URI | splitList "/" | reverse | first }}'
+      GET_FILE_TARGET_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .GET_FILE_TMP_FILENAME }}'
     status:
       - curl --version
-      - test -n "{{ .URI }}"
-      - test -f "{{ .TARGET_PATH }}"
-      - tar -tf "{{ .TARGET_PATH }}" || {{ not (contains ".tar" .FILENAME) }}
-      - unzip -t "{{ .TARGET_PATH }}" || {{ not (contains ".zip" .FILENAME) }}
+      - test -n "{{ .GET_FILE_URI }}"
+      - test -f "{{ .GET_FILE_TARGET_PATH }}"
+      - tar -tf "{{ .GET_FILE_TARGET_PATH }}" || {{ not (contains ".tar" .GET_FILE_TMP_FILENAME) }}
+      - unzip -t "{{ .GET_FILE_TARGET_PATH }}" || {{ not (contains ".zip" .GET_FILE_TMP_FILENAME) }}
     cmds:
-      - cmd: echo "Downloading '{{ .URI }}' to '{{ .TARGET_PATH }}'"
       - task: make-dir
-        vars: { TARGET_DIR: '{{ dir .TARGET_PATH }}' }
+        vars: { MAKE_DIR_TARGET_DIR: '{{ dir .GET_FILE_TARGET_PATH }}' }
       - cmd: |
-          curl -L "{{ .URI }}" --output "{{ fromSlash .TARGET_PATH }}"
+          curl -L "{{ .GET_FILE_URI }}" --output "{{ fromSlash .GET_FILE_TARGET_PATH }}"
+      - cmd: echo "Downloaded '{{ .GET_FILE_URI }}' to '{{ .GET_FILE_TARGET_PATH }}'"
 
   copy-source-to-target:
     vars:
@@ -362,53 +361,60 @@ tasks:
       SOURCE_DIR: '{{ joinPath .CP_SOURCE_DIR .OUTPUT_DIR_COMBINED }}'
     cmds:
       - task: make-dir
-        vars: { TARGET_DIR: '{{ .CP_TARGET_DIR }}' }
+        vars: { MAKE_DIR_TARGET_DIR: '{{ .CP_TARGET_DIR }}' }
       - cmd: |
           xcopy /E /Y /I "{{ fromSlash .SOURCE_DIR }}" "{{ fromSlash .CP_TARGET_DIR }}"
         platforms: [windows]
       - cmd: |
-          cp -Ru "{{ .SOURCE_DIR }}"/* "{{ .CP_TARGET_DIR }}"
+          cp -Ru "{{ toSlash .SOURCE_DIR }}"/* "{{ toSlash .CP_TARGET_DIR }}"
         platforms: [linux, darwin]
       - cmd: |
           echo "Copied {{ shellQuote .SOURCE_DIR }} to {{ shellQuote .CP_TARGET_DIR }}"
+
+  cmake-build-archive:
+    required: [CTI_URI]
+    vars:
+      CTI_TMP_FILENAME: '{{ .CTI_URI | splitList "/" | reverse | first }}'
+      CTI_TMP_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .CTI_TMP_FILENAME }}'
+
+      CTI_TMP_EXTRACTED_SOURCE_DIR: '{{ joinPath .DEP_TEMP_DIR .CTI_TMP_FILENAME }}'
+
+      # CTI_TMP_TMP_FILENAME: '{{ .CTI_TMP_URI | splitList "/" | last }}'  # lpng1643.zip
+
+      CTI_TMP_TARGET_NAME: '{{ .CTI_URI | splitList "/" | reverse | rest | first }}'  # libpng
+      CTI_TMP_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .CTI_TMP_TARGET_NAME }}'
+    cmds:
+      - task: get-file
+        vars:
+          GET_FILE_URI: '{{.CTI_URI}}'
+      - cmd: echo "{{ .CTI_TMP_ARCHIVE_FILE_PATH }}"
+      - task: make-dir
+        vars: { MAKE_DIR_TARGET_DIR: '{{ .CTI_TMP_EXTRACTED_SOURCE_DIR }}' }
+      #- cmd: |
+      #    unzip -o -qq -d "{{ fromSlash .CTI_TMP_EXTRACTED_SOURCE_DIR }}" "{{ fromSlash .CTI_TMP_ARCHIVE_FILE_PATH }}"
+      - cmd: |
+          tar -xf "{{ fromSlash .CTI_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CTI_TMP_EXTRACTED_SOURCE_DIR }}"
+      - task: copy-source-to-target
+        vars:
+          CP_SOURCE_DIR: '{{ .CTI_TMP_EXTRACTED_SOURCE_DIR }}'
+          CP_TARGET_DIR: '{{ .CTI_TMP_TARGET_SOURCE_DIR }}'
+      - task: cmake-build
+        vars:
+          TARGET_SOURCE_DIR: '{{ .CTI_TMP_TARGET_SOURCE_DIR }}'
+          CONFIGURE_ARGS: >-
+            -DCTI_TMP_TESTS=OFF
+            -DCTI_TMP_SHARED=OFF
 
   dependency-libpng:
     aliases: [libpng, png]
     vars:
       PNG_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
       PNG_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
-      PNG_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
-      PNG_TARGET_NAME: '{{ .PNG_URI | splitList "/" | reverse | rest | first }}'  # libpng
-      PNG_TMP_FILENAME: '{{ .PNG_URI | splitList "/" | last }}'  # lpng1643.zip
-      TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .PNG_TARGET_NAME }}'
-      OUTPUT_UNZIP_DIR: '{{ joinPath .DEP_TEMP_DIR .PNG_TARGET_NAME | fromSlash }}'
-      TARGET_EXTENSION: '{{ .PNG_TMP_FILENAME | splitList "." | last }}'
-      OUTPUT_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .PNG_TMP_FILENAME }}'
-      OUTPUT_ARCHIVE_DIR: '{{ .DEP_ARCHIVE_DIR }}'
     silent: true
     cmds:
-      - task: get-file
-        vars: { URI: '{{.PNG_URI}}' }
-      - task: make-dir
-        vars: { TARGET_DIR: '{{ .OUTPUT_UNZIP_DIR }}' }
-      - cmd: |
-          if [ "{{ .TARGET_EXTENSION }}" == "zip" ]; then
-            unzip -o -qq -d "{{ fromSlash .OUTPUT_UNZIP_DIR }}" "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}"
-          else
-            tar -xf "{{ fromSlash .OUTPUT_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .OUTPUT_UNZIP_DIR }}"
-          fi
-      - task: copy-source-to-target
+      - task: cmake-build-archive
         vars:
-          CP_SOURCE_DIR: '{{ .OUTPUT_UNZIP_DIR }}'
-          CP_TARGET_DIR: '{{ .TARGET_SOURCE_DIR }}'
-      - task: cmake-build
-        vars:
-          TARGET_NAME: '{{ .TARGET_NAME }}'
-          TARGET_SOURCE_DIR: '{{ .TARGET_SOURCE_DIR }}'
-          CONFIGURE_ARGS: >-
-            -DPNG_TESTS=OFF
-            -DPNG_SHARED=OFF
-
+          CTI_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
 
   dependency-libjpeg:
     aliases: [libjpeg, jpeg]
