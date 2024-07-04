@@ -8,3 +8,7 @@
 	path = external/vcpkg
 	url = https://github.com/microsoft/vcpkg.git
 	branch = master
+[submodule "external/sw"]
+	path = external/sw
+	url = https://github.com/SoftwareNetwork/sw.git
+	branch = b0.4.5
