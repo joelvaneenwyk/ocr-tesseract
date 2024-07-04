@@ -10,7 +10,7 @@ vars:
   BUILD_OS: '{{if eq OS "windows"}}windows{{else}}{{if eq OS "darwin"}}macos{{else}}linux{{end}}{{end}}'
 
   BUILD_DIR_NAME: '{{ .BUILD_DIR_NAME | default ".build" }}'
-  BUILD_DIR_ROOT: '{{ joinPath .TASKFILE_DIR .BUILD_DIR_NAME }}'
+  BUILD_DIR_ROOT: '{{ joinPath .ROOT_DIR .BUILD_DIR_NAME }}'
   BUILD_DIR: '{{ joinPath .BUILD_DIR_ROOT .BUILD_OS }}'
 
   DEP_SOURCE_DIR: '{{ joinPath .BUILD_DIR "source" }}'
@@ -125,15 +125,38 @@ tasks:
   make-dir:
     required: [MAKE_DIR_TARGET_DIR]
     vars:
-      MAKE_DIR_TARGET_DIR: '{{ default "" .MAKE_DIR_TARGET_DIR }}'
-      TMP_MKDIR_DIR_NON_NULL: '{{ coalesce .MAKE_DIR_TARGET_DIR .CLI_ARGS .TASKFILE_DIR }}'
-      TMP_MKDIR_TARGET: '{{ .TMP_MKDIR_DIR_NON_NULL | trimAll "''" }}'
+      INT_MAKE_DIR_TARGET_PATH: '{{ coalesce .MAKE_DIR_TARGET_DIR .CLI_ARGS "" | trimAll "''" }}'
+    preconditions:
+      - test -n "{{ .INT_MAKE_DIR_TARGET_PATH }}"
     cmds:
       - cmd: |
-          cmd.exe /D /E:ON /C if not exist "{{ fromSlash .TMP_MKDIR_TARGET }}" mkdir "{{ fromSlash .TMP_MKDIR_TARGET }}"
+          cmd.exe /D /E:ON /C if not exist "{{ fromSlash .INT_MAKE_DIR_TARGET_PATH }}" mkdir "{{ fromSlash .INT_MAKE_DIR_TARGET_PATH }}"
         platforms: [windows]
-      - cmd: 'mkdir -p {{ .TMP_MKDIR_TARGET }}'
+      - cmd: 'mkdir -p {{ .INT_MAKE_DIR_TARGET_PATH }}'
         platforms: [darwin, linux]
+
+  make-dir-test:
+    vars:
+      TEST_DIR: '{{ joinPath .BUILD_DIR "test" }}'
+    cmds:
+      - cmd: cmd.exe /D /C if exist "{{ fromSlash .BUILD_DIR_ROOT }}" rmdir /q /s "{{ fromSlash .BUILD_DIR_ROOT }}"
+      - cmd: |
+          if [ -d "{{ .TEST_DIR }}" ]; then
+            echo "Failed to delete '{{ .TEST_DIR }}' directory."
+            exit 55
+          else
+            echo "Removed '{{ .TEST_DIR }}' directory."
+          fi
+      - task: make-dir
+        vars: { MAKE_DIR_TARGET_DIR: '{{ .TEST_DIR }}' }
+      - cmd: |
+          if [ ! -d "{{ .TEST_DIR }}" ]; then
+            echo "Failed to create '{{ .TEST_DIR }}' directory."
+            exit 55
+          else
+            echo "Created '{{ .TEST_DIR }}' directory."
+          fi
+      - cmd: cmd.exe /D /C if exist "{{ fromSlash .BUILD_DIR_ROOT }}" rmdir /q /s "{{ fromSlash .BUILD_DIR_ROOT }}"
 
   test:
     cmds:
@@ -265,7 +288,7 @@ tasks:
       - unzip -t "{{ .GET_FILE_TARGET_PATH }}" || {{ not (contains ".zip" .GET_FILE_TMP_FILENAME) }}
     cmds:
       - task: make-dir
-        vars: { MAKE_DIR_TARGET_DIR: '{{ dir .GET_FILE_TARGET_PATH }}' }
+        vars: { MAKE_DIR_TARGET_DIR: '{{ .DEP_ARCHIVE_DIR }}' }
       - cmd: |
           curl -L "{{ .GET_FILE_URI }}" --output "{{ fromSlash .GET_FILE_TARGET_PATH }}"
       - cmd: echo "Downloaded '{{ .GET_FILE_URI }}' to '{{ .GET_FILE_TARGET_PATH }}'"
@@ -380,17 +403,25 @@ tasks:
 
       CMA_TMP_TARGET_NAME: '{{ .CMA_URI | splitList "/" | reverse | rest | first }}'  # libpng
       CMA_TMP_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .CMA_TMP_TARGET_NAME }}'
+
+      CMA_TMP_IS_ZIP: '{{ contains ".zip" .CMA_TMP_FILENAME }}'
+      CMA_TMP_IS_TAR: '{{ contains ".gz" .CMA_TMP_FILENAME }}'
     cmds:
       - task: get-file
         vars:
           GET_FILE_URI: '{{.CMA_URI}}'
-      - cmd: echo "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}"
       - task: make-dir
         vars: { MAKE_DIR_TARGET_DIR: '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}' }
-      #- cmd: |
-      #    unzip -o -qq -d "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}" "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}"
       - cmd: |
-          tar -xf "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}"
+          if [ "{{ .CMA_TMP_IS_ZIP }}" = "true" ]; then
+            echo "Extracting zip file '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}' to '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'"
+            unzip -o -qq -d "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}" "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}"
+          fi
+      - cmd: |
+          if [ "{{ .CMA_TMP_IS_TAR }}" = "true" ]; then
+            echo "Extracting tar file '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}' to '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'"
+            tar -xf "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}"
+          fi
       - task: copy-source-to-target
         vars:
           CP_SOURCE_DIR: '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'
@@ -439,7 +470,6 @@ tasks:
     vars:
       PNG_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
       PNG_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
-    silent: true
     cmds:
       - task: cmake-build-archive
         vars:
