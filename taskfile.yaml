@@ -63,12 +63,34 @@ tasks:
         task: get-file
         vars: { GET_FILE_URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}' }
 
+  dependency-linux-os:
+    platforms: [linux]
+    preconditions:
+      - sudo --version
+      - apt-get --version
+    status:
+      - sudo --version
+      - cmake --version
+      - ninja --version
+    cmds:
+      - cmd: >-
+          sudo -n apt-get update -y
+        ignore_error: true
+      - cmd: >-
+          sudo -n apt-get install -y --no-install-recommends
+          autoconf libleptonica-dev
+          libarchive-dev libcurl4-openssl-dev
+          libpango1.0-dev
+          cabextract
+          ninja-build
+        ignore_error: true
+
   tesseract-dependencies:
-    internal: true
     deps: [git-submodule-update]
     # We are intentionally executing these tasks serially to avoid errors that occur
     # when installing multiple packages at the same time.
     cmds:
+      - task: dependency-linux-os
       - task: dependency-nasm
       - task: dependency-unzip
       # We are intentionally executing these tasks serially to avoid errors that occur
@@ -229,15 +251,6 @@ tasks:
             echo "Target directory already checked out: '{{ fromSlash .GTC_TARGET_DIR }}'"
           fi
 
-  git-clone-test:
-    cmds:
-      - task: git-clone
-        vars:
-          GTC_TARGET_DIR: '{{ joinPath .BUILD_DIR "git-clone" }}'
-          GTC_URI: 'https://gitlab.com/libtiff/libtiff.git'
-          GTC_GIT_BRANCH: v4.6.0
-          GTC_GIT_ARGS: -c advice.detachedHead=false
-
   git-pull:
     vars:
       GP_INPUT_TARGET_DIR: '{{ default "" .GP_TARGET_DIR }}'
@@ -278,20 +291,28 @@ tasks:
   get-file:
     required: [GET_FILE_URI]
     vars:
-      GET_FILE_TMP_FILENAME: '{{ .GET_FILE_URI | splitList "/" | last }}'
-      GET_FILE_TARGET_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .GET_FILE_TMP_FILENAME }}'
+      GET_FILE_TMP_URI: '{{ .GET_FILE_URI | default "" }}'
+      GET_FILE_TMP_TARGET_LOCATION: '{{ coalesce .GET_FILE_TARGET_PATH .GET_FILE_URI | toSlash }}'
+
+      GET_FILE_TMP_FILENAME: '{{ splitList "/" .GET_FILE_TMP_TARGET_LOCATION | last }}'
+      GET_FILE_TMP_TARGET_PATH_FALLBACK: '{{ joinPath .DEP_ARCHIVE_DIR .GET_FILE_TMP_FILENAME  }}'
+
+      GET_FILE_TMP_TARGET_PATH: '{{ coalesce .GET_FILE_TARGET_PATH .GET_FILE_TMP_TARGET_PATH_FALLBACK | toSlash }}'
     status:
       - curl --version
-      - test -n "{{ .GET_FILE_URI }}"
-      - test -f "{{ .GET_FILE_TARGET_PATH }}"
-      - tar -tf "{{ .GET_FILE_TARGET_PATH }}" || {{ not (contains ".tar" .GET_FILE_TMP_FILENAME) }}
-      - unzip -t "{{ .GET_FILE_TARGET_PATH }}" || {{ not (contains ".zip" .GET_FILE_TMP_FILENAME) }}
+      - test -n "{{ .GET_FILE_TMP_URI }}"
+      - test -f "{{ .GET_FILE_TMP_TARGET_PATH }}"
+      # Here we check each supported format to make sure the file is *not* valid in that format
+      # which would mean that the file is there but perhaps got corrupted during download. This
+      # will cause it to try downloading again.
+      - '! tar -tf "{{ .GET_FILE_TMP_TARGET_PATH }}"'
+      - '! unzip -t "{{ .GET_FILE_TMP_TARGET_PATH }}"'
     cmds:
       - task: make-dir
-        vars: { MAKE_DIR_TARGET_DIR: '{{ .DEP_ARCHIVE_DIR }}' }
+        vars: { MAKE_DIR_TARGET_DIR: '{{ splitList "/" .GET_FILE_TMP_TARGET_PATH | reverse | rest | reverse | join "/" }}' }
       - cmd: |
-          curl -L "{{ .GET_FILE_URI }}" --output "{{ fromSlash .GET_FILE_TARGET_PATH }}"
-      - cmd: echo "Downloaded '{{ .GET_FILE_URI }}' to '{{ .GET_FILE_TARGET_PATH }}'"
+          curl -L "{{ .GET_FILE_TMP_URI }}" --output "{{ fromSlash .GET_FILE_TMP_TARGET_PATH }}"
+      - cmd: echo "Downloaded '{{ .GET_FILE_TMP_URI }}' to '{{ fromSlash .GET_FILE_TMP_TARGET_PATH }}'"
 
   copy-source-to-target:
     required: [CP_SOURCE_DIR, CP_TARGET_DIR]
@@ -401,24 +422,25 @@ tasks:
 
       CMA_TMP_EXTRACTED_SOURCE_DIR: '{{ joinPath .DEP_TEMP_DIR .CMA_TMP_FILENAME }}'
 
-      CMA_TMP_TARGET_NAME: '{{ .CMA_URI | splitList "/" | reverse | rest | first }}'  # libpng
+      CMA_TMP_TARGET_NAME: '{{ .CMA_URI | splitList "/" | reverse | rest | first }}'
       CMA_TMP_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .CMA_TMP_TARGET_NAME }}'
-
-      CMA_TMP_IS_ZIP: '{{ contains ".zip" .CMA_TMP_FILENAME }}'
-      CMA_TMP_IS_TAR: '{{ contains ".gz" .CMA_TMP_FILENAME }}'
+    preconditions:
+      - test -n "{{ .CMA_URI }}"
     cmds:
+      - cmd: echo "Downloading file from '{{ .CMA_URI }}' and saving to '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}'"
       - task: get-file
         vars:
           GET_FILE_URI: '{{.CMA_URI}}'
+          GET_FILE_TARGET_PATH: '{{.CMA_TMP_ARCHIVE_FILE_PATH}}'
       - task: make-dir
         vars: { MAKE_DIR_TARGET_DIR: '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}' }
       - cmd: |
-          if [ "{{ .CMA_TMP_IS_ZIP }}" = "true" ]; then
+          if unzip -t "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}"; then
             echo "Extracting zip file '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}' to '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'"
             unzip -o -qq -d "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}" "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}"
           fi
       - cmd: |
-          if [ "{{ .CMA_TMP_IS_TAR }}" = "true" ]; then
+          if tar -tf "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}"; then
             echo "Extracting tar file '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}' to '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'"
             tar -xf "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}"
           fi
@@ -470,10 +492,11 @@ tasks:
     vars:
       PNG_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
       PNG_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
+      PNG_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
     cmds:
       - task: cmake-build-archive
         vars:
-          CMA_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
+          CMA_URI: '{{ .PNG_URI }}'
 
   dependency-libjpeg:
     aliases: [libjpeg, jpeg]
@@ -510,6 +533,8 @@ tasks:
             -Dtiff-tests=OFF
             -Dtiff-contrib=OFF
             -Dtiff-docs=OFF
+            -DWITH_SIMD=ON
+            -DENABLE_SHARED=ON
 
   dependency-leptonica:
     cmds:
