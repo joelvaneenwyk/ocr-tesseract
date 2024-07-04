@@ -139,8 +139,13 @@ jobs:
 
   taskfile:
     needs: build
-    name: taskfile-validation
-    runs-on: windows-latest
+    name: "taskfile-validation-${{ matrix.config.os }}"
+    runs-on: "${{ matrix.config.os }}-latest"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows, ubuntu, macos]
+
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v4
@@ -158,4 +163,3 @@ jobs:
       - run: task dependency-libtiff
       - run: task dependency-leptonica
       - run: task tesseract
-

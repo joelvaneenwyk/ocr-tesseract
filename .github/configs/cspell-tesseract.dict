@@ -1,9 +1,12 @@
 # Custom Dictionary Words
+autogen
 autostash
+autotools
 choco
 DBUILD
 DCMAKE
 DENABLE
+devel
 DFAST
 DGRAPHICS
 DINSTALL
@@ -13,11 +16,16 @@ Dtiff
 DWITH
 DZLIB
 ILOC
+jaxb
 jbigkit
+ldconfig
 libjpeg
 lpng
+msys
+multiplatform
 nasm
 nproc
+pango
 phototest
 strawberryperl
 TASKFILE
