@@ -115,3 +115,8 @@ times.txt
 
 /*.snap
 /*_source.tar.bz2
+
+/.build/
+/external/
+/out/
+/vcpkg_installed/
