@@ -123,3 +123,5 @@ times.txt
 /*.zip
 
 .build/
+out/
+vcpkg_installed/

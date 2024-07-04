@@ -2,6 +2,7 @@
 autogen
 autostash
 autotools
+buildsystems
 choco
 DBUILD
 DCMAKE
@@ -32,6 +33,7 @@ TASKFILE
 tessdata
 TESSDATA
 tesseract
+toolset
 traineddata
 TURBOJPEG
 vcpkg
