@@ -2,6 +2,7 @@
 autogen
 autostash
 autotools
+basicapitest
 buildsystems
 choco
 DBUILD
@@ -16,11 +17,13 @@ DPNG
 Dtiff
 DWITH
 DZLIB
+eurotext
 ILOC
 jaxb
 jbigkit
 ldconfig
 libjpeg
+libtesseract
 lpng
 msys
 multiplatform
@@ -28,6 +31,7 @@ nasm
 nproc
 pango
 phototest
+raaj
 strawberryperl
 TASKFILE
 tessdata
@@ -37,4 +41,5 @@ toolset
 traineddata
 TURBOJPEG
 vcpkg
+viet
 xcopy
