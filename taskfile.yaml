@@ -33,6 +33,26 @@ tasks:
       - task: clean
       - task: build
 
+  vcpkg:
+    vars:
+      VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
+      VCPKG: '{{ joinPath .ROOT_DIR "external/vcpkg/vcpkg" }}'
+      VCPKG_CMAKE: '{{ joinPath .ROOT_DIR "external/vcpkg/scripts/buildsystems/vcpkg.cmake" }}'
+    cmds:
+      - cmd: git submodule update --init --recursive
+      - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG_BOOTSTRAP }}"
+      - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG }}" integrate install
+      - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG }}" install
+      - cmd: >-
+          cmake
+          -S "{{ .TASKFILE_DIR }}"
+          -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DSW_BUILD=OFF
+          -DOPENMP_BUILD=OFF -DBUILD_TRAINING_TOOLS=OFF -DCMAKE_TOOLCHAIN_FILE="{{ fromSlash .VCPKG_CMAKE }}"
+      - cmd: |
+          cmake --build build --config Release --target install
+
   update:
     preconditions:
       - git --version
@@ -49,17 +69,24 @@ tasks:
   tesseract:
     deps: [tesseract-build, tesseract-data]
     vars:
+      PATH_SEPARATOR: '{{ if eq OS "windows" }};{{ else }}:{{ end }}'
       TESSERACT_CLI_ARGS: '{{ default "--version" .CLI_ARGS }}'
       TESSERACT_PATH_ARRAY: |
+        {{ joinPath .ILOC "bin" }}
         {{ joinPath .ILOC "tesseract" "bin" }}
         {{ joinPath .ILOC "tesseract" "lib" }}
         {{ joinPath .ILOC "leptonica" "lib" }}
         {{ joinPath .ILOC "libtiff" "lib" }}
-      TESSERACT_PATHS: '{{ splitLines .TESSERACT_PATH_ARRAY | uniq | compact | sortAlpha | join ":" }}'
+        {{ joinPath .TESSDATA_PREFIX }}
+      TESSERACT_PATHS: '{{ splitLines .TESSERACT_PATH_ARRAY | uniq | compact | sortAlpha | join .PATH_SEPARATOR }}'
     silent: true
     cmd: |
-      export PATH="{{ .TESSERACT_PATHS }}:$PATH"
-      export LD_LIBRARY_PATH="{{ .TESSERACT_PATHS }}:$LD_LIBRARY_PATH"
+      set -eax
+      PATH="{{ .TESSERACT_PATHS }}{{ .PATH_SEPARATOR }}${PATH:-}"
+      LD_LIBRARY_PATH="{{ .TESSERACT_PATHS }}{{ .PATH_SEPARATOR }}${LD_LIBRARY_PATH:-}"
+      TESSDATA_PREFIX="{{ fromSlash .TESSDATA_PREFIX }}"
+      echo "##[cmd] tesseract {{ .TESSERACT_CLI_ARGS }}"
+      cd "{{ joinPath .ILOC "bin" }}" || true
       tesseract {{ .TESSERACT_CLI_ARGS }}
 
   tesseract-data:
