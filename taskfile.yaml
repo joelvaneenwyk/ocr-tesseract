@@ -28,6 +28,11 @@ tasks:
       - cmd: echo "Building Tesseract OCR 'v{{ .VERSION }}'"
       - task: tesseract
 
+  rebuild:
+    cmds:
+      - task: clean
+      - task: build
+
   update:
     preconditions:
       - git --version
@@ -499,7 +504,7 @@ tasks:
           CMA_URI: '{{ .PNG_URI }}'
 
   dependency-libjpeg:
-    aliases: [libjpeg, jpeg]
+    aliases: [libjpeg, jpeg, libjpeg-turbo]
     cmds:
       - task: cmake-build
         vars:
@@ -507,6 +512,7 @@ tasks:
           CM_CONFIGURE_ARGS: >-
             -DWITH_TURBOJPEG=OFF
             -DENABLE_SHARED=OFF
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
   dependency-jbigkit:
     aliases: [jbigkit]
@@ -545,3 +551,4 @@ tasks:
             -DSW_BUILD=OFF
             -DBUILD_PROG=OFF
             -DBUILD_SHARED_LIBS=ON
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
