@@ -2,24 +2,9 @@ name: sw
 
 on:
   push:
-    branches: [main, develop]
-    paths:
-      - '**.cpp'
-      - '**.h'
-      - '**/sw.yml'
-      - 'unittest/**.c'
-      - 'unittest/**.cc'
+    branches: [master, main, develop]
   pull_request:
-    branches: [main, develop]
-    paths:
-      - '**.cpp'
-      - '**.h'
-      - '**/sw.yml'
-      - 'unittest/**.c'
-      - 'unittest/**.cc'
-  schedule:
-    # every day
-    - cron: 0 0 * * *
+    branches: [master, main, develop]
 
 jobs:
   build:
