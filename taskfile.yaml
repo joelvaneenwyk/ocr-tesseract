@@ -33,6 +33,21 @@ tasks:
       - task: clean
       - task: build
 
+  clean:
+    cmds:
+      - cmd: git add .
+      - cmd: git submodule deinit --all -f
+      - cmd: git submodule update --init --recursive --checkout
+      - cmd: cmd.exe /D /C rmdir /q /s -rf "{{ fromSlash .BUILD_DIR_ROOT }}"
+        platforms: [windows]
+      - cmd: rm -rf "{{ fromSlash .BUILD_DIR }}"
+        platforms: [linux, darwin]
+      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
+        platforms: [linux, darwin]
+      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
+        platforms: [linux, darwin]
+      - cmd: git clean -xfd
+
   vcpkg-bootstrap:
     vars:
       VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
@@ -310,19 +325,6 @@ tasks:
   ## Utilities
   ########################################
   ##
-
-  clean:
-    cmds:
-      - cmd: git add .
-      - cmd: cmd.exe /D /C rmdir /q /s -rf "{{ fromSlash .BUILD_DIR_ROOT }}"
-        platforms: [windows]
-      - cmd: rm -rf "{{ fromSlash .BUILD_DIR }}"
-        platforms: [linux, darwin]
-      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "zlib-ng" | fromSlash }}"
-        platforms: [linux, darwin]
-      - cmd: rm -rf "{{ joinPath .TASKFILE_DIR "libjpeg-turbo" | fromSlash }}"
-        platforms: [linux, darwin]
-      - cmd: git clean -xfd
 
   get-file:
     required: [GET_FILE_URI]
