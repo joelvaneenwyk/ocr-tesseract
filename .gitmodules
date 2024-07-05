@@ -3,7 +3,7 @@
 	url = https://github.com/google/googletest.git
 [submodule "test"]
 	path = test
-	url = https://github.com/tesseract-ocr/test.git
+	url = https://github.com/joelvaneenwyk/tesseract-test.git
 [submodule "external/vcpkg"]
 	path = external/vcpkg
 	url = https://github.com/microsoft/vcpkg.git
