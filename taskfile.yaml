@@ -33,7 +33,7 @@ tasks:
       - task: clean
       - task: build
 
-  vcpkg:
+  vcpkg-bootstrap:
     vars:
       VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
       VCPKG: '{{ joinPath .ROOT_DIR "external/vcpkg/vcpkg" }}'
@@ -52,6 +52,10 @@ tasks:
           -DOPENMP_BUILD=OFF -DBUILD_TRAINING_TOOLS=OFF -DCMAKE_TOOLCHAIN_FILE="{{ fromSlash .VCPKG_CMAKE }}"
       - cmd: |
           cmake --build build --config Release --target install
+
+  vcpkg:
+    cmds:
+      - cmd: external/vcpkg/vcpkg.exe --vcpkg-root "{{ joinPath .TASKFILE_DIR "external" "vcpkg" }}" {{ .CLI_ARGS }}
 
   update:
     preconditions:
