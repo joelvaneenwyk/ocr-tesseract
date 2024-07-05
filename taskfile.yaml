@@ -53,24 +53,33 @@ tasks:
       VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
       VCPKG: '{{ joinPath .ROOT_DIR "external/vcpkg/vcpkg" }}'
       VCPKG_CMAKE: '{{ joinPath .ROOT_DIR "external/vcpkg/scripts/buildsystems/vcpkg.cmake" }}'
+    env:
+      VCPKG_ROOT: '{{ joinPath .ROOT_DIR "external/vcpkg" | fromSlash }}'
     cmds:
-      - cmd: git submodule update --init --recursive
+      - cmd: git submodule update --init --recursive --checkout
       - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG_BOOTSTRAP }}"
       - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG }}" integrate install
-      - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG }}" install
-      - cmd: >-
-          cmake
-          -S "{{ .TASKFILE_DIR }}"
-          -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DSW_BUILD=OFF
-          -DOPENMP_BUILD=OFF -DBUILD_TRAINING_TOOLS=OFF -DCMAKE_TOOLCHAIN_FILE="{{ fromSlash .VCPKG_CMAKE }}"
-      - cmd: |
-          cmake --build build --config Release --target install
 
   vcpkg:
     cmds:
       - cmd: external/vcpkg/vcpkg.exe --vcpkg-root "{{ joinPath .TASKFILE_DIR "external" "vcpkg" }}" {{ .CLI_ARGS }}
+
+  build-vcpkg:
+    vars:
+      VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
+      VCPKG: '{{ joinPath .ROOT_DIR "external/vcpkg/vcpkg" }}'
+      VCPKG_CMAKE: '{{ joinPath .ROOT_DIR "external/vcpkg/scripts/buildsystems/vcpkg.cmake" }}'
+    cmds:
+      - task: vcpkg-bootstrap
+      - cmd: >-
+          cmake
+          --preset "windows-x64"
+          -DCMAKE_BUILD_TYPE=RelD
+          -DSW_BUILD=OFF
+          -DOPENMP_BUILD=OFF
+          -DBUILD_TRAINING_TOOLS=OFF
+      - cmd: |
+          cmake --build --preset "windows-x64" --target install
 
   update:
     preconditions:
@@ -169,7 +178,8 @@ tasks:
       - task: cmake-build
         vars:
           CM_TARGET_NAME_OVERRIDE: tesseract
-          CM_SOURCE_DIR: "{{ .TASKFILE_DIR }}"
+          CM_SOURCE_DIR:
+            ref: ".TASKFILE_DIR"
           CM_CONFIGURE_ARGS: >
             -DBUILD_SHARED_LIBS=ON
             -DBUILD_TRAINING_TOOLS=OFF

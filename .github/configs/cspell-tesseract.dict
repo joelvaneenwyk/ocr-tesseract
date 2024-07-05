@@ -4,9 +4,12 @@ autostash
 autotools
 basicapitest
 buildsystems
+cabextract
 choco
 DBUILD
+DCMA
 DCMAKE
+deinit
 DENABLE
 devel
 DFAST
@@ -22,7 +25,10 @@ ILOC
 jaxb
 jbigkit
 ldconfig
+libcurl
 libjpeg
+libleptonica
+libpango
 libtesseract
 lpng
 msys
@@ -32,6 +38,7 @@ nproc
 pango
 phototest
 raaj
+SIMD
 strawberryperl
 TASKFILE
 tessdata
