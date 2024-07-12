@@ -3,11 +3,9 @@ name: vcpkg
 # vcpkg with -head does not work. https://github.com/microsoft/vcpkg/issues/16019
 on:
   push:
-    branches: [master, main, develop]
+    branches: [main, develop]
   pull_request:
-    branches: [master, main, develop]
-  schedule:
-    - cron: 0 23 * * *
+    branches: [main, develop]
 
 jobs:
   build:
