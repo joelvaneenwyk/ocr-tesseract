@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
 # https://taskfile.dev
 
 version: "3"
@@ -42,7 +43,6 @@ tasks:
     cmds:
       - cmd: git add .
       - cmd: git submodule deinit --all -f {{.CLOSE_STDIN}}
-      - cmd: git submodule update --init --recursive --checkout {{.CLOSE_STDIN}}
       - cmd: git clean -xfd {{.CLOSE_STDIN}}
         silent: true
         ignore_error: true
@@ -110,6 +110,7 @@ tasks:
   #
 
   tesseract:
+    aliases: [ocr, run]
     deps: [tesseract-build, tesseract-data]
     vars:
       PATH_SEPARATOR: '{{ if eq OS "windows" }};{{ else }}:{{ end }}'
@@ -128,15 +129,19 @@ tasks:
       PATH="{{ .TESSERACT_PATHS }}{{ .PATH_SEPARATOR }}${PATH:-}"
       LD_LIBRARY_PATH="{{ .TESSERACT_PATHS }}{{ .PATH_SEPARATOR }}${LD_LIBRARY_PATH:-}"
       TESSDATA_PREFIX="{{ fromSlash .TESSDATA_PREFIX }}"
-      echo "##[cmd] tesseract {{ .TESSERACT_CLI_ARGS }}"
       cd "{{ joinPath .ILOC "bin" }}" || true
+      echo "##[cmd] tesseract {{ .TESSERACT_CLI_ARGS }}"
       tesseract {{ .TESSERACT_CLI_ARGS }}
 
   tesseract-data:
+    generates:
+      - '{{toSlash .TESSDATA_PREFIX}}/*.traineddata'
     cmds:
       - for: ['eng.traineddata', 'osd.traineddata']
         task: get-file
-        vars: { GET_FILE_URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}' }
+        vars:
+          GET_FILE_URI: 'https://github.com/tesseract-ocr/tessdata/raw/main/{{ .ITEM }}'
+          GET_FILE_TARGET_PATH: '{{ joinPath .TESSDATA_PREFIX .ITEM }}'
 
   dependency-linux-os:
     platforms: [linux]
@@ -186,10 +191,14 @@ tasks:
   tesseract-build:
     deps: [tesseract-dependencies]
     aliases: [build, b]
+    sources:
+      - taskfile.yaml
+      - src/**/*.cpp
+    generates:
+      - '{{ .ILOC }}/bin/tesseract.exe'
     cmds:
       # Remove any locally installed tools that aren't needed
       # before we build tesseract.
-      - task: remove-unused-tool-binaries
       - task: cmake-build
         vars:
           CM_TARGET_NAME_OVERRIDE: tesseract
@@ -205,23 +214,12 @@ tasks:
             -DSW_BUILD=OFF
 
   #
-  # Initialization
-  #
-
-  remove-unused-tool-binaries:
-    internal: true
-    status:
-      - test ! -d "{{ .ILOC }}/bin/"
-    cmds:
-      - cmd: rm -Rf "{{ .ILOC }}/bin/"*.exe
-        platforms: [linux, darwin]
-
-  #
   # Utilities
   #
 
   make-dir:
-    required: [MAKE_DIR_TARGET_DIR]
+    requires:
+      vars: [MAKE_DIR_TARGET_DIR]
     vars:
       INT_MAKE_DIR_TARGET_PATH: '{{ coalesce .MAKE_DIR_TARGET_DIR .CLI_ARGS "" | trimAll "''" }}'
     preconditions:
@@ -284,8 +282,12 @@ tasks:
     vars:
       TARGET_DIR_TO_REMOVE_DEFAULT: '{{ joinPath .DEP_BUILD_DIR "INVALID_BROKEN_PATH" }}'
       TARGET_DIR_TO_REMOVE: '{{ .TARGET_DIR_PATH | default .TARGET_DIR_TO_REMOVE_DEFAULT }}'
+    silent: true
     cmds:
-      - cmd: cmd.exe /D /C if exist "{{ fromSlash .TARGET_DIR_TO_REMOVE }}" rmdir "{{ fromSlash .TARGET_DIR_TO_REMOVE }}"
+      - cmd: |
+          if cmd.exe /D /C rmdir "{{ fromSlash .TARGET_DIR_TO_REMOVE }}" > /dev/null 2>&1; then
+            echo "Removed empty '{{ fromSlash .TARGET_DIR_TO_REMOVE }}'"
+          fi
         platforms: [windows]
         ignore_error: true
       - cmd: rmdir "{{ toSlash .TARGET_DIR_TO_REMOVE }}"
@@ -293,14 +295,18 @@ tasks:
         ignore_error: true
 
   git-submodule-update:
-    internal: true
-    status:
-      - test -d "{{ .TASKFILE_DIR }}/test/.gitignore"
+    sources:
+      - .gitmodules
+    generates:
+      - test/README.md
+      - external/vcpkg/README.md
+      - external/sw/README.md
     cmds:
       - cmd: git submodule update --recursive --checkout --init
 
   git-clone:
-    required: [GTC_TARGET_DIR, GTC_URI]
+    requires:
+      vars: [GTC_TARGET_DIR, GTC_URI]
     vars:
       GTC_TARGET_DIR: '{{ default "" .GTC_TARGET_DIR }}'
       GTC_URI: '{{ default "" .GTC_URI }}'
@@ -314,12 +320,13 @@ tasks:
         {{.GTC_GIT_ARGS}}
     preconditions:
       - git --version
+    silent: true
     cmds:
-      - cmd: echo "Cloning '{{.GTC_GEN_CLONE_ARGS}}'"
       - task: remove-empty-directory
         vars: { TARGET_DIR_PATH: '{{ .GTC_TARGET_DIR }}' }
       - cmd: |
           if [ -n "{{ .GTC_URI }}" ] && [ ! -d "{{ toSlash .GTC_TARGET_DIR }}" ]; then
+            echo "Cloning '{{.GTC_GEN_CLONE_ARGS}}'"
             git clone {{ .GTC_GEN_CLONE_ARGS }} \
               "{{ .GTC_URI }}" \
               "{{ fromSlash .GTC_TARGET_DIR }}"
@@ -352,7 +359,8 @@ tasks:
   ##
 
   get-file:
-    required: [GET_FILE_URI]
+    requires:
+      vars: [GET_FILE_URI]
     vars:
       GET_FILE_TMP_URI: '{{ .GET_FILE_URI | default "" }}'
       GET_FILE_TMP_TARGET_LOCATION: '{{ coalesce .GET_FILE_TARGET_PATH .GET_FILE_URI | toSlash }}'
@@ -361,6 +369,11 @@ tasks:
       GET_FILE_TMP_TARGET_PATH_FALLBACK: '{{ joinPath .DEP_ARCHIVE_DIR .GET_FILE_TMP_FILENAME  }}'
 
       GET_FILE_TMP_TARGET_PATH: '{{ coalesce .GET_FILE_TARGET_PATH .GET_FILE_TMP_TARGET_PATH_FALLBACK | toSlash }}'
+    label: 'Download {{.GET_FILE_URI}}'
+    sources:
+      - taskfile.yml
+    generates:
+      - '{{ .GET_FILE_TMP_TARGET_PATH }}'
     status:
       - curl --version
       - test -n "{{ .GET_FILE_TMP_URI }}"
@@ -374,11 +387,16 @@ tasks:
       - task: make-dir
         vars: { MAKE_DIR_TARGET_DIR: '{{ splitList "/" .GET_FILE_TMP_TARGET_PATH | reverse | rest | reverse | join "/" }}' }
       - cmd: |
-          curl -L "{{ .GET_FILE_TMP_URI }}" --output "{{ fromSlash .GET_FILE_TMP_TARGET_PATH }}"
-      - cmd: echo "Downloaded '{{ .GET_FILE_TMP_URI }}' to '{{ fromSlash .GET_FILE_TMP_TARGET_PATH }}'"
+          if [ -f "{{ .GET_FILE_TMP_TARGET_PATH }}" ]; then
+            echo "Skipped download. File already exists: '{{ .GET_FILE_TMP_TARGET_PATH }}'"
+          else
+            curl -L "{{ .GET_FILE_TMP_URI }}" --output "{{ fromSlash .GET_FILE_TMP_TARGET_PATH }}"
+            echo "Downloaded file: '{{ fromSlash .GET_FILE_TMP_TARGET_PATH }}'"
+          fi
 
   copy-source-to-target:
-    required: [CP_SOURCE_DIR, CP_TARGET_DIR]
+    requires:
+      vars: [CP_SOURCE_DIR, CP_TARGET_DIR]
     vars:
       CP_OUTPUT_DIR_CMD: cmd.exe /D /C dir /b /a:d "{{ fromSlash .CP_SOURCE_DIR }}"
       CP_OUTPUT_DIR_BASH: ls "{{ toSlash .CP_SOURCE_DIR }}"
@@ -386,16 +404,18 @@ tasks:
         sh: '{{if eq OS "windows"}}{{.CP_OUTPUT_DIR_CMD}}{{else}}{{.CP_OUTPUT_DIR_BASH}}{{end}}'
       CP_OUTPUT_DIR_COMBINED: '{{ .CP_LS_OUTPUT | splitLines | uniq | sortAlpha | first }}'
       CP_SOURCE_DIR: '{{ joinPath .CP_SOURCE_DIR .CP_OUTPUT_DIR_COMBINED }}'
+    label: 'Copy {{.CP_SOURCE_DIR}} to {{.CP_TARGET_DIR}}'
+    silent: true
     cmds:
       - task: make-dir
         vars: { MAKE_DIR_TARGET_DIR: '{{ .CP_TARGET_DIR }}' }
       - cmd: |
-          xcopy /E /Y /I "{{ fromSlash .CP_SOURCE_DIR }}" "{{ fromSlash .CP_TARGET_DIR }}"
-        platforms: [windows]
-      - cmd: |
-          cp -Ru "{{ toSlash .CP_SOURCE_DIR }}"/* "{{ toSlash .CP_TARGET_DIR }}"
-        platforms: [linux, darwin]
-      - cmd: |
+          echo "Copying '{{ .CP_SOURCE_DIR }}' to '{{ .CP_TARGET_DIR }}'"
+          if [ command -v xcopy ]; then
+            xcopy /Q /E /Y /I "{{ fromSlash .CP_SOURCE_DIR }}" "{{ fromSlash .CP_TARGET_DIR }}"
+          else
+            cp -Ru "{{ toSlash .CP_SOURCE_DIR }}"/* "{{ toSlash .CP_TARGET_DIR }}"
+          fi
           echo "Copied {{ shellQuote .CP_SOURCE_DIR }} to {{ shellQuote .CP_TARGET_DIR }}"
 
   ##
@@ -478,7 +498,8 @@ tasks:
           -j {{ if eq OS "windows" }}$NUMBER_OF_PROCESSORS{{ else }}$(nproc){{ end }}
 
   cmake-build-archive:
-    required: [CMA_URI]
+    requires:
+      vars: [CMA_URI]
     vars:
       CMA_TMP_FILENAME: '{{ .CMA_URI | splitList "/" | last }}'
       CMA_TMP_ARCHIVE_FILE_PATH: '{{ joinPath .DEP_ARCHIVE_DIR .CMA_TMP_FILENAME }}'
@@ -487,10 +508,15 @@ tasks:
 
       CMA_TMP_TARGET_NAME: '{{ .CMA_URI | splitList "/" | reverse | rest | first }}'
       CMA_TMP_TARGET_SOURCE_DIR: '{{ joinPath .DEP_SOURCE_DIR .CMA_TMP_TARGET_NAME }}'
+    sources:
+      - taskfile.yaml
+    generates:
+      - '{{ relPath .TASKFILE_DIR .CMA_TMP_ARCHIVE_FILE_PATH }}'
+      - '{{ relPath .TASKFILE_DIR .CMA_TMP_EXTRACTED_SOURCE_DIR }}/CMakeLists.txt'
     preconditions:
       - test -n "{{ .CMA_URI }}"
+    label: 'CMake: {{.CMA_URI}}'
     cmds:
-      - cmd: echo "Downloading file from '{{ .CMA_URI }}' and saving to '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}'"
       - task: get-file
         vars:
           GET_FILE_URI: '{{.CMA_URI}}'
@@ -498,14 +524,12 @@ tasks:
       - task: make-dir
         vars: { MAKE_DIR_TARGET_DIR: '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}' }
       - cmd: |  # shell
-          if unzip -t "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}"; then
+          if unzip -t "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}" > /dev/null 2>&1; then
             echo "Extracting zip file '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}' to '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'"
             unzip -o -qq -d "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}" "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}"
-          fi
-      - cmd: |  # shell
-          if tar -tf "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}"; then
+          elif tar -tf "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}" > /dev/null 2>&1; then
             echo "Extracting tar file '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}' to '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'"
-            tar -xf "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}"
+            tar -xf "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}" > /dev/null 2>&1
           fi
       - task: copy-source-to-target
         vars:
@@ -556,6 +580,10 @@ tasks:
       PNG_URI_ZIP: 'https://download.sourceforge.net/libpng/lpng1643.zip'
       PNG_URI_TAR_XZ: 'https://download.sourceforge.net/libpng/libpng-1.6.27.tar.xz'
       PNG_URI: '{{ if eq OS "windows" }}{{ .PNG_URI_ZIP }}{{ else }}{{ .PNG_URI_TAR_XZ }}{{ end }}'
+    sources:
+      - taskfile.yaml
+    generates:
+      - .build/windows/install/bin/libpng16.dll
     cmds:
       - task: cmake-build-archive
         vars:
