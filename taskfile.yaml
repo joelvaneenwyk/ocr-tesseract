@@ -77,23 +77,6 @@ tasks:
       - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG }}" integrate install
         platforms: [windows]
 
-  build-vcpkg:
-    deps: [vcpkg-bootstrap]
-    vars:
-      VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
-      VCPKG: '{{ joinPath .ROOT_DIR "external/vcpkg/vcpkg" }}'
-      VCPKG_CMAKE: '{{ joinPath .ROOT_DIR "external/vcpkg/scripts/buildsystems/vcpkg.cmake" }}'
-    cmds:
-      - cmd: >-
-          cmake
-          --preset "windows-x64"
-          -DCMAKE_BUILD_TYPE=RelD
-          -DSW_BUILD=OFF
-          -DOPENMP_BUILD=OFF
-          -DBUILD_TRAINING_TOOLS=OFF
-      - cmd: |
-          cmake --build --preset "windows-x64" --target install
-
   update:
     preconditions:
       - git --version
@@ -107,9 +90,9 @@ tasks:
   # Tesseract
   #
 
-  tesseract:
-    aliases: [ocr, run]
-    deps: [tesseract-build, tesseract-data]
+  run:
+    aliases: [ocr, run, tesseract]
+    deps: [build, tesseract-data]
     vars:
       PATH_SEPARATOR: '{{ if eq OS "windows" }};{{ else }}:{{ end }}'
       TESSERACT_CLI_ARGS: '{{ default "--version" .CLI_ARGS }}'
@@ -186,9 +169,26 @@ tasks:
       # Has dependency on 'dependency-libtiff'
       - task: dependency-leptonica
 
-  tesseract-build:
+  build-vcpkg:
+    deps: [vcpkg-bootstrap]
+    vars:
+      VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
+      VCPKG: '{{ joinPath .ROOT_DIR "external/vcpkg/vcpkg" }}'
+      VCPKG_CMAKE: '{{ joinPath .ROOT_DIR "external/vcpkg/scripts/buildsystems/vcpkg.cmake" }}'
+    cmds:
+      - cmd: >-
+          cmake
+          --preset "windows-x64"
+          -DCMAKE_BUILD_TYPE=RelD
+          -DSW_BUILD=OFF
+          -DOPENMP_BUILD=OFF
+          -DBUILD_TRAINING_TOOLS=OFF
+      - cmd: |
+          cmake --build --preset "windows-x64" --target install
+
+  build:
     deps: [tesseract-dependencies]
-    aliases: [build, b]
+    aliases: [tesseract-build, b]
     sources:
       - taskfile.yaml
       - src/**/*.cpp
