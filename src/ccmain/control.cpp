@@ -41,6 +41,7 @@
 #endif
 #include "sorthelper.h"
 #include "tesseractclass.h"
+#include "tesserrstream.h"  // for tesserr
 #include "tessvars.h"
 #include "werdit.h"
 
@@ -51,13 +52,14 @@ const char *const kBackUpConfigFile = "tempconfigdata.config";
 const double kMinRefitXHeightFraction = 0.5;
 #endif // ! DISABLED_LEGACY_ENGINE
 
+namespace tesseract {
+
 /**
  * Make a word from the selected blobs and run Tess on them.
  *
  * @param page_res recognise blobs
  * @param selection_box within this box
  */
-namespace tesseract {
 
 void Tesseract::recog_pseudo_word(PAGE_RES *page_res, TBOX &selection_box) {
   PAGE_RES_IT *it = make_pseudo_word(page_res, selection_box);
@@ -1312,7 +1314,11 @@ void Tesseract::classify_word_and_language(int pass_n, PAGE_RES_IT *pr_it, WordD
   PointerVector<WERD_RES> best_words;
   // Points to the best result. May be word or in lang_words.
   const WERD_RES *word = word_data->word;
-  clock_t start_t = clock();
+  clock_t total_time = 0;
+  const bool timing_debug = tessedit_timing_debug;
+  if (timing_debug) {
+    total_time = clock();
+  }
   const bool debug = classify_debug_level > 0 || multilang_debug_level > 0;
   if (debug) {
     tprintf("%s word with lang %s at:", word->done ? "Already done" : "Processing",
@@ -1364,10 +1370,10 @@ void Tesseract::classify_word_and_language(int pass_n, PAGE_RES_IT *pr_it, WordD
   } else {
     tprintf("no best words!!\n");
   }
-  clock_t ocr_t = clock();
-  if (tessedit_timing_debug) {
-    tprintf("%s (ocr took %.2f sec)\n", word_data->word->best_choice->unichar_string().c_str(),
-            static_cast<double>(ocr_t - start_t) / CLOCKS_PER_SEC);
+  if (timing_debug) {
+    total_time = clock() - total_time;
+    tesserr << word_data->word->best_choice->unichar_string()
+            << " (ocr took " << 1000 * total_time / CLOCKS_PER_SEC << " ms)\n";
   }
 }
 
