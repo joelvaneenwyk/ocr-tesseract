@@ -64,6 +64,7 @@ tasks:
         platforms: [linux, darwin]
 
   vcpkg-bootstrap:
+    deps: [git-submodule-update]
     vars:
       VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
       VCPKG: '{{ joinPath .ROOT_DIR "external/vcpkg/vcpkg" }}'
@@ -71,21 +72,18 @@ tasks:
     env:
       VCPKG_ROOT: '{{ joinPath .ROOT_DIR "external/vcpkg" | fromSlash }}'
     cmds:
-      - cmd: git submodule update --init --recursive --checkout
       - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG_BOOTSTRAP }}"
+        platforms: [windows]
       - cmd: cmd.exe /D /C call "{{ fromSlash .VCPKG }}" integrate install
-
-  vcpkg:
-    cmds:
-      - cmd: external/vcpkg/vcpkg.exe --vcpkg-root "{{ joinPath .TASKFILE_DIR "external" "vcpkg" }}" {{ .CLI_ARGS }}
+        platforms: [windows]
 
   build-vcpkg:
+    deps: [vcpkg-bootstrap]
     vars:
       VCPKG_BOOTSTRAP: '{{ joinPath .ROOT_DIR "external/vcpkg/bootstrap-vcpkg.bat" }}'
       VCPKG: '{{ joinPath .ROOT_DIR "external/vcpkg/vcpkg" }}'
       VCPKG_CMAKE: '{{ joinPath .ROOT_DIR "external/vcpkg/scripts/buildsystems/vcpkg.cmake" }}'
     cmds:
-      - task: vcpkg-bootstrap
       - cmd: >-
           cmake
           --preset "windows-x64"
@@ -312,7 +310,6 @@ tasks:
       GTC_URI: '{{ default "" .GTC_URI }}'
       GTC_GIT_ARGS: '{{ default .CLI_ARGS .GTC_GIT_ARGS }}'
       GTC_GIT_BRANCH: '{{ default "" .GTC_GIT_BRANCH }}'
-
       GTC_GEN_BRANCH_ARGS: -b "{{.GTC_GIT_BRANCH}}"
       GTC_GEN_CLONE_ARGS: >-
         --depth 1
