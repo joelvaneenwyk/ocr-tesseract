@@ -447,14 +447,14 @@ tasks:
           GTC_URI: "{{ .CM_URI }}"
           GTC_GIT_ARGS: "{{ .CM_GIT_ARGS }}"
           GTC_GIT_BRANCH: "{{ .CM_GIT_BRANCH }}"
-      - cmd: >-
+      - cmd: >-  # shell
           cmake
           -B "{{ fromSlash .CM_BUILD_DIR }}"
           -S "{{ fromSlash .CM_SOURCE_DIR }}"
           -DCMAKE_INSTALL_PREFIX="{{ fromSlash .CM_ILOC_INSTALL_PREFIX }}"
           -DCMAKE_PREFIX_PATH="{{ fromSlash .CM_ILOC_INSTALL_PREFIX }}"
           {{ .CM_CONFIGURE_ARGS }}
-      - cmd: >-
+      - cmd: >-  # shell
           cmake
           --build "{{ fromSlash .CM_BUILD_DIR }}"
           --config "{{ .CM_CONFIG }}"
@@ -482,12 +482,12 @@ tasks:
           GET_FILE_TARGET_PATH: '{{.CMA_TMP_ARCHIVE_FILE_PATH}}'
       - task: make-dir
         vars: { MAKE_DIR_TARGET_DIR: '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}' }
-      - cmd: |
+      - cmd: |  # shell
           if unzip -t "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}"; then
             echo "Extracting zip file '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}' to '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'"
             unzip -o -qq -d "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}" "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}"
           fi
-      - cmd: |
+      - cmd: |  # shell
           if tar -tf "{{ .CMA_TMP_ARCHIVE_FILE_PATH }}"; then
             echo "Extracting tar file '{{ .CMA_TMP_ARCHIVE_FILE_PATH }}' to '{{ .CMA_TMP_EXTRACTED_SOURCE_DIR }}'"
             tar -xf "{{ fromSlash .CMA_TMP_ARCHIVE_FILE_PATH }}" -C "{{ fromSlash .CMA_TMP_EXTRACTED_SOURCE_DIR }}"
