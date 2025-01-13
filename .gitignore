@@ -125,3 +125,4 @@ times.txt
 .build/
 out/
 vcpkg_installed/
+.task/
