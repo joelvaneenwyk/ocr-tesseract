@@ -590,6 +590,7 @@ tasks:
       - task: cmake-build
         vars:
           CM_URI: https://github.com/DanBloomberg/leptonica.git
+          CM_GIT_BRANCH: 1.84.1
           CM_CONFIGURE_ARGS: >-
             -DSW_BUILD=OFF
             -DBUILD_PROG=OFF
