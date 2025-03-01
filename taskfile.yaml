@@ -94,7 +94,7 @@ tasks:
   # Tesseract
   #
 
-  run:
+  tesseract:
     aliases: [ocr, run, tesseract]
     deps: [build, tesseract-data]
     vars:
@@ -111,6 +111,7 @@ tasks:
     silent: true
     cmd: |
       set -eax
+      cp .build/windows/install/bin/*.dll .build/install/windows-x64/bin/
       PATH="{{ .TESSERACT_PATHS }}{{ .PATH_SEPARATOR }}${PATH:-}"
       LD_LIBRARY_PATH="{{ .TESSERACT_PATHS }}{{ .PATH_SEPARATOR }}${LD_LIBRARY_PATH:-}"
       TESSDATA_PREFIX="{{ fromSlash .TESSDATA_PREFIX }}"
